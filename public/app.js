@@ -607,18 +607,38 @@
   }
 
   // ---------------- keeper ----------------
+  // Two-tap confirm that works everywhere (some in-app browsers block confirm() pop-ups).
+  function confirmTap(btn, armedLabel, action) {
+    var original = btn.innerHTML;
+    var armed = false, timer = null;
+    btn.addEventListener("click", function () {
+      if (btn.disabled) return;
+      if (!armed) {
+        armed = true;
+        btn.textContent = armedLabel;
+        btn.classList.add("is-armed");
+        timer = setTimeout(function () { armed = false; btn.innerHTML = original; btn.classList.remove("is-armed"); }, 4000);
+        return;
+      }
+      clearTimeout(timer);
+      armed = false;
+      btn.classList.remove("is-armed");
+      btn.innerHTML = original;
+      action();
+    });
+  }
+
   var keeper = document.querySelector("[data-keeper]");
   if (keeper) {
     var kSlug = keeper.getAttribute("data-slug");
     var token = keeper.getAttribute("data-token");
     var kStatus = keeper.querySelector("[data-keeper-status]");
     keeper.querySelectorAll("[data-remove-note]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        if (!confirm("Remove this note from the niche?")) return;
+      confirmTap(btn, "Tap again to remove", function () {
         btn.disabled = true;
         postJSON("/api/keeper/" + encodeURIComponent(kSlug) + "/remove-note", { token: token, noteId: Number(btn.getAttribute("data-remove-note")) })
           .then(function () { btn.closest(".note").remove(); })
-          .catch(function (err) { alert(err.message); btn.disabled = false; });
+          .catch(function (err) { setStatus(kStatus, err.message, true); btn.disabled = false; });
       });
     });
     // remember the keeper link on this device so the niche page can offer "Manage this niche"
@@ -645,8 +665,7 @@
       });
     });
     keeper.querySelectorAll("[data-photo-remove]").forEach(function (b) {
-      b.addEventListener("click", function () {
-        if (!confirm("Remove this from the album? It can't be undone.")) return;
+      confirmTap(b, "Tap again", function () {
         photoAction("photo-remove", { photoId: Number(b.getAttribute("data-photo-remove")) }, "Removing…");
       });
     });
@@ -671,7 +690,6 @@
               else setStatus(photoStatus, hasVideo ? "Preparing the videos. This can take a minute…" : "Adding to the album…");
             });
           }).then(function () {
-            if (res.errors.length) alert(res.errors.join("\n"));
             location.reload();
           });
         }).catch(function (err) { setStatus(photoStatus, err.message, true); });
@@ -698,8 +716,7 @@
 
     var del = keeper.querySelector("[data-delete-niche]");
     if (del) {
-      del.addEventListener("click", function () {
-        if (!confirm("Permanently remove this niche, its photos and every tribute? This can't be undone.")) return;
+      confirmTap(del, "Tap again to permanently remove", function () {
         del.disabled = true;
         setStatus(kStatus, "Removing the niche…");
         postJSON("/api/keeper/" + encodeURIComponent(kSlug) + "/delete", { token: token })
