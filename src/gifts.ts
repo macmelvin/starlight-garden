@@ -59,11 +59,11 @@ export function giftArt(id: GiftId): string {
 const STRIPE_API = (process.env.STRIPE_API_BASE || "https://api.stripe.com").replace(/\/$/, "");
 
 export function giftsEnabled(): boolean {
-  return /^sk_(test|live)_/.test(process.env.STRIPE_SECRET_KEY ?? "");
+  return /^(sk|rk)_(test|live)_/.test(process.env.STRIPE_SECRET_KEY ?? "");
 }
 
 export function stripeTestMode(): boolean {
-  return (process.env.STRIPE_SECRET_KEY ?? "").startsWith("sk_test_");
+  return /^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "");
 }
 
 function form(data: Record<string, string>): string {
