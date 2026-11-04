@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { analyticsOrigins } from "./src/analytics";
-import { KINDS, countNiches, getNiche, getNotes, getPhotos, listNiches, migrate, sql } from "./src/db";
-import { KEY_PATTERN, deletePhotos, photoFile, putPhoto, s3, storageConfigured } from "./src/storage";
+import { KINDS, countNiches, getNiche, getNotes, getPhotos, listNiches, listPortraits, migrate, sql } from "./src/db";
+import { KEY_PATTERN, deletePhotos, getThumb, photoFile, putPhoto, s3, storageConfigured } from "./src/storage";
 import {
   allow, clientIp, hashToken, isIsoDate, newKeeperToken, randomId, safeEqual, slugify, sniffImage, TYPE_BY_EXT,
 } from "./src/util";
@@ -254,6 +254,20 @@ async function servePhoto(req: Request) {
   }
 }
 
+async function serveThumb(req: Request) {
+  const key = decodeURIComponent(new URL(req.url).pathname.replace(/^\/thumb\//, ""));
+  if (!KEY_PATTERN.test(key)) return new Response("Not found", { status: 404 });
+  const data = await getThumb(key);
+  if (!data) return Response.redirect(`/photo/${key}`, 302);
+  return new Response(data, {
+    headers: {
+      "Content-Type": "image/webp",
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
 const STATIC_TYPES: Record<string, string> = {
   css: "text/css; charset=utf-8",
   js: "text/javascript; charset=utf-8",
@@ -306,14 +320,15 @@ const server = Bun.serve({
     "/healthz": () => new Response("ok"),
     "/static/*": safe(serveStatic),
     "/photo/*": safe(servePhoto),
+    "/thumb/*": safe(serveThumb),
 
     "/": safe(async (req) => {
       const url = new URL(req.url);
       const q = (url.searchParams.get("q") ?? "").slice(0, 60);
       const kindParam = url.searchParams.get("kind") ?? "all";
       const kind = ["all", "dogs", "cats", "small"].includes(kindParam) ? kindParam : "all";
-      const [niches, total] = await Promise.all([listNiches({ q, kind }), countNiches()]);
-      return html(homePage({ niches, q, kind, total, base: baseUrl(req) }));
+      const [niches, total, portraits] = await Promise.all([listNiches({ q, kind }), countNiches(), listPortraits(30)]);
+      return html(homePage({ niches, q, kind, total, portraits, base: baseUrl(req) }));
     }),
 
     "/create": safe((req) => html(createPage(baseUrl(req)))),

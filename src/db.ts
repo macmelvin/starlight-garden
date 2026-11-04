@@ -120,3 +120,11 @@ export async function getNotes(nicheId: number, limit = 100): Promise<Note[]> {
     ORDER BY created_at DESC
     LIMIT ${limit}`) as Note[];
 }
+
+export async function listPortraits(limit = 30): Promise<{ name: string; portrait_key: string }[]> {
+  return (await sql`
+    SELECT name, portrait_key FROM niches
+    WHERE portrait_key IS NOT NULL
+    ORDER BY created_at DESC
+    LIMIT ${limit}`) as { name: string; portrait_key: string }[];
+}

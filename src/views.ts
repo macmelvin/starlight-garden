@@ -37,6 +37,22 @@ export function photoUrl(key: string | null): string | null {
   return key ? `/photo/${key}` : null;
 }
 
+export function thumbUrl(key: string | null): string | null {
+  return key ? `/thumb/${key}` : null;
+}
+
+/** Faded mosaic of every pet's portrait, repeated to fill the hero. */
+function heroCollage(portraits: { name: string; portrait_key: string }[]): string {
+  if (!portraits.length) return "";
+  const TILES = 60;
+  const tiles: string[] = [];
+  for (let i = 0; i < TILES; i++) {
+    const p = portraits[i % portraits.length];
+    tiles.push(`<img src="${esc(thumbUrl(p.portrait_key)!)}" alt="" decoding="async"${i > 23 ? ' loading="lazy"' : ""}>`);
+  }
+  return `<div class="hero-collage" aria-hidden="true">${tiles.join("")}</div><div class="hero-veil" aria-hidden="true"></div>`;
+}
+
 export function shareMessage(name: string, url: string, lit: boolean): string {
   const first = lit
     ? `I just lit a candle for ${name} at ${SITE_NAME}.`
@@ -121,8 +137,8 @@ ${o.night ? "" : footer()}
 </html>`;
 }
 
-function portraitBox(n: Pick<Niche, "name" | "portrait_key">, cls: string, size = 40) {
-  const url = photoUrl(n.portrait_key);
+function portraitBox(n: Pick<Niche, "name" | "portrait_key">, cls: string, size = 40, thumb = false) {
+  const url = thumb ? thumbUrl(n.portrait_key) : photoUrl(n.portrait_key);
   return url
     ? `<img class="${cls}" src="${esc(url)}" alt="Portrait of ${esc(n.name)}" loading="lazy" decoding="async">`
     : `<div class="${cls} placeholder">${icon.paw(size)}</div>`;
@@ -131,7 +147,7 @@ function portraitBox(n: Pick<Niche, "name" | "portrait_key">, cls: string, size 
 function plaqueCard(n: Niche) {
   const years = yearsLine(n.born, n.passed);
   return `<a class="plaque" href="/pet/${esc(n.slug)}">
-    ${portraitBox(n, "plaque-photo")}
+    ${portraitBox(n, "plaque-photo", 40, true)}
     <div class="plaque-body">
       <span class="plaque-name">${esc(n.name)}</span>
       <span class="plaque-meta">${esc(n.kind)}${years ? ` · ${esc(years)}` : ""}</span>
@@ -142,7 +158,14 @@ function plaqueCard(n: Niche) {
 
 // ---------- pages ----------
 
-export function homePage(opts: { niches: Niche[]; q: string; kind: string; total: number; base: string }) {
+export function homePage(opts: {
+  niches: Niche[];
+  q: string;
+  kind: string;
+  total: number;
+  portraits: { name: string; portrait_key: string }[];
+  base: string;
+}) {
   const { niches, q, kind, total } = opts;
   const filters = [
     ["all", "All"],
@@ -176,6 +199,7 @@ export function homePage(opts: { niches: Niche[]; q: string; kind: string; total
   }
 
   const heroHtml = `
+    ${heroCollage(opts.portraits)}
     <div class="moon" aria-hidden="true"></div>
     <div class="wrap hero-inner">
       <p class="kicker">An online pet columbarium</p>
@@ -245,7 +269,7 @@ export function nichePage(opts: { niche: Niche; photos: Photo[]; notes: Note[]; 
             .map(
               (p, i) =>
                 `<a class="gallery-item" href="/photo/${esc(p.key)}" data-lightbox>
-                  <img src="/photo/${esc(p.key)}" alt="Photo ${i + 1} of ${esc(n.name)}" loading="lazy" decoding="async">
+                  <img src="/thumb/${esc(p.key)}" alt="Photo ${i + 1} of ${esc(n.name)}" loading="lazy" decoding="async">
                 </a>`,
             )
             .join("")}
@@ -448,7 +472,7 @@ export function skyPage(opts: { niches: Niche[]; selected?: string; base: string
         aria-pressed="${on ? "true" : "false"}" aria-label="${esc(n.name)}, ${plural(n.candles, "candle", "candles")} lit"
         data-star data-slug="${esc(n.slug)}" data-name="${esc(n.name)}" data-kind="${esc(n.kind)}"
         data-years="${esc(yearsLine(n.born, n.passed))}" data-candles="${n.candles}"
-        data-photo="${esc(photoUrl(n.portrait_key) ?? "")}">
+        data-photo="${esc(thumbUrl(n.portrait_key) ?? "")}">
         <span class="star-dot" aria-hidden="true"></span><span class="star-name">${esc(n.name)}</span>
       </button>`;
     })
@@ -456,7 +480,7 @@ export function skyPage(opts: { niches: Niche[]; selected?: string; base: string
 
   const card = sel
     ? `<section class="sky-card" aria-live="polite" data-sky-card>
-        <div class="sky-photo" data-sky-photo>${sel.portrait_key ? `<img src="${esc(photoUrl(sel.portrait_key)!)}" alt="">` : icon.paw(36)}</div>
+        <div class="sky-photo" data-sky-photo>${sel.portrait_key ? `<img src="${esc(thumbUrl(sel.portrait_key)!)}" alt="">` : icon.paw(36)}</div>
         <div class="sky-info">
           <span class="sky-name" data-sky-name>${esc(sel.name)}</span>
           <span class="sky-meta" data-sky-meta>${esc([sel.kind, yearsLine(sel.born, sel.passed), `${plural(sel.candles, "candle", "candles")} lit`].filter(Boolean).join(" · "))}</span>
