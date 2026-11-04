@@ -578,13 +578,13 @@ const server = Bun.serve({
     }),
 
     "/admin": {
-      GET: safe(() => html(adminLoginPage(), 200, { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" })),
+      GET: safe(() => html(adminLoginPage(), 200, { "Cache-Control": "no-store", "Referrer-Policy": "same-origin" })),
       POST: safe(async (req) => {
         const form = await req.formData().catch(() => null);
         const key = form ? String(form.get("key") ?? "") : "";
         if (!adminKeyOk(req, key)) return html(adminLoginPage("That key isn't right."), 403, { "Cache-Control": "no-store" });
         const niches = await listNiches({ limit: 500 });
-        return html(adminListPage(niches, key), 200, { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
+        return html(adminListPage(niches, key), 200, { "Cache-Control": "no-store", "Referrer-Policy": "same-origin" });
       }),
     },
     "/admin/keeper-link": {
@@ -601,7 +601,7 @@ const server = Bun.serve({
         await sql`UPDATE niches SET keeper_token_hash = ${hashToken(token)} WHERE id = ${niche.id}`;
         const url = `${baseUrl(req)}/keeper/${niche.slug}?token=${encodeURIComponent(token)}`;
         console.log(`Owner issued a new keeper link for ${niche.slug}`);
-        return html(adminListPage(niches, key, { name: niche.name, url }), 200, { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
+        return html(adminListPage(niches, key, { name: niche.name, url }), 200, { "Cache-Control": "no-store", "Referrer-Policy": "same-origin" });
       }),
     },
 
@@ -610,11 +610,11 @@ const server = Bun.serve({
       const niche = await verifyKeeper(req.params.slug, token);
       if (!niche) {
         const p = messagePage("This keeper link isn't valid", "Please check you copied the whole private link you were given when the niche was created.", 403);
-        return html(p.html, p.status, { "Referrer-Policy": "no-referrer" });
+        return html(p.html, p.status, { "Referrer-Policy": "same-origin" });
       }
       const [notes, photos] = await Promise.all([getNotes(niche.id, 500), getPhotos(niche.id)]);
       return html(keeperPage({ niche, notes, photos, token: token!, base: baseUrl(req) }), 200, {
-        "Referrer-Policy": "no-referrer",
+        "Referrer-Policy": "same-origin",
         "Cache-Control": "no-store",
       });
     }),

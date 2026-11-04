@@ -123,7 +123,7 @@ export function layout(o: LayoutOpts): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(o.title)}</title>
 <meta name="description" content="${esc(description)}">
-${o.noindex ? `<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">` : ""}
+${o.noindex ? `<meta name="robots" content="noindex"><meta name="referrer" content="same-origin">` : ""}
 <meta property="og:site_name" content="${SITE_NAME}">
 <meta property="og:type" content="website">
 <meta property="og:title" content="${esc(o.title)}">
