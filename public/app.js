@@ -237,8 +237,17 @@
       return "";
     }
 
+    function petName(raw) {
+      var first = (raw || "").trim().split(/\s+/)[0] || "";
+      return first.toLowerCase().replace(/(^|[^\p{L}\p{N}])(\p{L})/gu, function (_m, pre, ch) { return pre + ch.toUpperCase(); });
+    }
+    form.elements.name.addEventListener("blur", function () {
+      var v = petName(form.elements.name.value);
+      if (v !== form.elements.name.value) { form.elements.name.value = v; updatePreview(); }
+    });
+
     function updatePreview() {
-      previewName.textContent = form.elements.name.value.trim() || "Their name";
+      previewName.textContent = petName(form.elements.name.value) || "Their name";
       var y = years();
       previewMeta.textContent = form.elements.kind.value + (y ? " · " + y : "");
       previewLine.textContent = form.elements.plaque_line.value.trim();
@@ -353,8 +362,9 @@
 
     form.addEventListener("submit", function (e) {
       e.preventDefault();
-      var name = form.elements.name.value.trim();
+      var name = petName(form.elements.name.value);
       if (!name) { setStatus(statusEl, "Please add their name.", true); form.elements.name.focus(); return; }
+      form.elements.name.value = name;
       if (!files.length) { setStatus(statusEl, "Please add at least one photo.", true); dropzone.focus(); return; }
       var b = form.elements.born.value, p = form.elements.passed.value;
       if (b && p && b > p) { setStatus(statusEl, "The birth date should come before the date they passed.", true); return; }

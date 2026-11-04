@@ -67,6 +67,10 @@ export async function migrate() {
   await sql`CREATE INDEX IF NOT EXISTS photos_niche_idx ON photos(niche_id, position)`;
   await sql`CREATE INDEX IF NOT EXISTS notes_niche_idx ON notes(niche_id, created_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS niches_created_idx ON niches(created_at DESC)`;
+  // Pets are shown by first name only, with a capital first letter ("BELLA NG" -> "Bella").
+  await sql`
+    UPDATE niches SET name = initcap(split_part(btrim(name), ' ', 1))
+    WHERE name <> initcap(split_part(btrim(name), ' ', 1))`;
 }
 
 export async function getNiche(slug: string): Promise<Niche | null> {

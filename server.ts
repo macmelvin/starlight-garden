@@ -3,7 +3,7 @@ import { analyticsOrigins } from "./src/analytics";
 import { KINDS, countNiches, getNiche, getNotes, getPhotos, listNiches, listPortraits, migrate, sql } from "./src/db";
 import { KEY_PATTERN, deletePhotos, getThumb, photoFile, putPhoto, s3, storageConfigured } from "./src/storage";
 import {
-  allow, clientIp, hashToken, isIsoDate, newKeeperToken, randomId, safeEqual, slugify, sniffImage, TYPE_BY_EXT,
+  allow, clientIp, hashToken, petFirstName, isIsoDate, newKeeperToken, randomId, safeEqual, slugify, sniffImage, TYPE_BY_EXT,
 } from "./src/util";
 import { createPage, homePage, keeperPage, messagePage, nichePage, noteItem, reminderIcs, skyPage } from "./src/views";
 
@@ -97,7 +97,7 @@ async function createNiche(req: Request) {
     return json({ error: "We couldn't read the form. Please try again." }, 400);
   }
 
-  const name = text(form, "name", 60);
+  const name = petFirstName(text(form, "name", 60));
   const kindRaw = text(form, "kind", 30);
   const kind = (KINDS as readonly string[]).includes(kindRaw) ? kindRaw : "Other friend";
   const born = text(form, "born", 10) || null;

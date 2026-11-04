@@ -557,7 +557,7 @@ export function createPage(base: string) {
         <fieldset>
           <legend>About them</legend>
           <div class="grid-2">
-            <div class="field"><label for="name">Their name</label><input id="name" name="name" type="text" maxlength="60" required autocomplete="off"></div>
+            <div class="field"><label for="name">Their name <span class="optional">(first name)</span></label><input id="name" name="name" type="text" maxlength="40" required autocomplete="off" autocapitalize="words" placeholder="e.g. Bella"></div>
             <div class="field"><label for="kind">They were a</label><select id="kind" name="kind">${kinds}</select></div>
             <div class="field"><label for="born">Born or welcomed home <span class="optional">(optional)</span></label><input id="born" name="born" type="date" max="${today}"></div>
             <div class="field"><label for="passed">Passed away <span class="optional">(optional)</span></label><input id="passed" name="passed" type="date" max="${today}"></div>

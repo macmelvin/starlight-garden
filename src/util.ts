@@ -154,3 +154,12 @@ export const TYPE_BY_EXT: Record<string, string> = {
   heic: "image/heic",
   avif: "image/avif",
 };
+
+/** "BELLA NG" -> "Bella", "mary-jane" -> "Mary-Jane". First name only, tidy capitals. */
+export function petFirstName(raw: string): string {
+  const first = raw.trim().split(/\s+/)[0] ?? "";
+  return first
+    .toLocaleLowerCase("en")
+    .replace(/(^|[^\p{L}\p{N}])(\p{L})/gu, (_m, pre: string, ch: string) => pre + ch.toLocaleUpperCase("en"))
+    .slice(0, 40);
+}
