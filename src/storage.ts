@@ -12,13 +12,30 @@ if (!storageConfigured) {
   console.warn("S3_* variables are not set — photo uploads will fail until they are.");
 }
 
+const virtualHosted = (env.S3_URL_STYLE || "virtual-host") !== "path";
+
+// With virtual-hosted style, Bun sends requests to the endpoint exactly as given,
+// so the bucket has to be part of the host (https://<bucket>.<endpoint host>).
+function resolveEndpoint(): string | undefined {
+  const endpoint = env.S3_ENDPOINT;
+  const bucket = env.S3_BUCKET;
+  if (!endpoint || !bucket || !virtualHosted) return endpoint;
+  try {
+    const url = new URL(endpoint);
+    if (!url.hostname.startsWith(`${bucket}.`)) url.hostname = `${bucket}.${url.hostname}`;
+    return url.origin;
+  } catch {
+    return endpoint;
+  }
+}
+
 export const s3 = new S3Client({
   bucket: env.S3_BUCKET,
-  endpoint: env.S3_ENDPOINT,
+  endpoint: resolveEndpoint(),
   region: env.S3_REGION || "auto",
   accessKeyId: env.S3_ACCESS_KEY_ID,
   secretAccessKey: env.S3_SECRET_ACCESS_KEY,
-  virtualHostedStyle: (env.S3_URL_STYLE || "virtual-host") !== "path",
+  virtualHostedStyle: virtualHosted,
 });
 
 /** Keys look like niches/<slug>/<id>.<ext> */

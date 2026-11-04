@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { KINDS, countNiches, getNiche, getNotes, getPhotos, listNiches, migrate, sql } from "./src/db";
-import { KEY_PATTERN, deletePhotos, photoFile, putPhoto, storageConfigured } from "./src/storage";
+import { KEY_PATTERN, deletePhotos, photoFile, putPhoto, s3, storageConfigured } from "./src/storage";
 import {
   allow, clientIp, hashToken, isIsoDate, newKeeperToken, randomId, safeEqual, slugify, sniffImage, TYPE_BY_EXT,
 } from "./src/util";
@@ -291,6 +291,12 @@ function safe(handler: (req: Request & { params: Record<string, string> }) => Pr
 await migrate().catch((err) => {
   console.error("Database migration failed:", err);
 });
+
+if (storageConfigured) {
+  s3.list({ maxKeys: 1 })
+    .then(() => console.log("Photo storage connected"))
+    .catch((err) => console.error("Photo storage check failed:", err?.code ?? "", err?.message ?? err));
+}
 
 const server = Bun.serve({
   port: PORT,
