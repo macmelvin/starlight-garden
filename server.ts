@@ -1,7 +1,8 @@
 import { join } from "node:path";
 import { analyticsOrigins } from "./src/analytics";
+import { createCheckout, getCheckout, getGift, giftsEnabled, verifyWebhook } from "./src/gifts";
 import { MAX_VIDEO_BYTES, MAX_VIDEOS_PER_NICHE, VideoError, processVideo, sniffVideo, videoToolsAvailable } from "./src/media";
-import { KINDS, addReminder, exportReminders, findReminder, reminderCounts, unsubscribeReminder, countNiches, getNiche, getNotes, getPhotos, listNiches, listPortraits, migrate, sql } from "./src/db";
+import { KINDS, activeGifts, createGiftRow, findGiftBySession, giftSales, keeperGifts, markGiftPaid, setGiftHidden, setGiftSession, addReminder, exportReminders, findReminder, reminderCounts, unsubscribeReminder, countNiches, getNiche, getNotes, getPhotos, listNiches, listPortraits, migrate, sql } from "./src/db";
 import { KEY_PATTERN, deletePhotos, getThumb, photoFile, putPhoto, s3, storageConfigured } from "./src/storage";
 import {
   allow, cleanEmail, clientIp, hashToken, petFirstName, isIsoDate, newKeeperToken, randomId, safeEqual, slugify, sniffImage, TYPE_BY_EXT,
@@ -477,6 +478,63 @@ function csvCell(v: unknown): string {
   return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
 }
 
+async function startGift(req: Request, slug: string) {
+  if (!sameOrigin(req)) return json({ error: "Not allowed" }, 403);
+  if (!giftsEnabled()) return json({ error: "Gifts aren't available yet." }, 503);
+  if (!allow(`gift:${clientIp(req)}`, 30, 60 * 60 * 1000)) return json({ error: "Please try again a little later." }, 429);
+  let data: { gift?: unknown; from_name?: unknown; message?: unknown };
+  try {
+    data = await req.json();
+  } catch {
+    return json({ error: "Please try again." }, 400);
+  }
+  const gift = getGift(data.gift);
+  if (!gift) return json({ error: "Please choose a gift." }, 400);
+  const niche = await getNiche(slug);
+  if (!niche) return json({ error: "Niche not found" }, 404);
+  const fromName = typeof data.from_name === "string" ? data.from_name.trim().slice(0, 40) || null : null;
+  const message = typeof data.message === "string" ? data.message.trim().slice(0, 120) || null : null;
+  const rowId = await createGiftRow(niche.id, gift.id, fromName, message, gift.cents, gift.days);
+  const base = baseUrl(req);
+  try {
+    const session = await createCheckout({
+      gift,
+      petName: niche.name,
+      giftRowId: rowId,
+      successUrl: `${base}/pet/${niche.slug}?gift={CHECKOUT_SESSION_ID}#gifts`,
+      cancelUrl: `${base}/pet/${niche.slug}#gifts`,
+    });
+    await setGiftSession(rowId, session.id);
+    return json({ url: session.url });
+  } catch {
+    return json({ error: "We couldn't open the payment page. Please try again." }, 502);
+  }
+}
+
+/** Confirms a paid checkout (from the return redirect or the webhook). Returns the gift id if paid. */
+async function confirmGift(sessionId: string): Promise<string | null> {
+  if (!/^cs_[A-Za-z0-9_]{10,200}$/.test(sessionId)) return null;
+  const row = await findGiftBySession(sessionId);
+  if (!row) return null;
+  if (row.status === "paid") return row.gift;
+  const session = await getCheckout(sessionId);
+  if (session.payment_status !== "paid" || session.metadata?.gift_row_id !== String(row.id) || session.currency !== "sgd") return null;
+  const done = await markGiftPaid(row.id, sessionId, session.amount_total);
+  if (done) console.log(`Gift paid: ${row.gift} for niche ${row.niche_id}`);
+  return row.gift;
+}
+
+async function stripeWebhook(req: Request) {
+  const payload = await req.text();
+  const event = await verifyWebhook(payload, req.headers.get("stripe-signature"));
+  if (!event) return new Response("Invalid signature", { status: 400 });
+  if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
+    const id = event.data?.object?.id;
+    if (typeof id === "string") await confirmGift(id).catch((err) => console.error("webhook confirm failed", err));
+  }
+  return new Response("ok");
+}
+
 async function servePhoto(req: Request) {
   const key = decodeURIComponent(new URL(req.url).pathname.replace(/^\/photo\//, ""));
   if (!KEY_PATTERN.test(key)) return new Response("Not found", { status: 404 });
@@ -605,8 +663,10 @@ const server = Bun.serve({
     "/pet/:slug": safe(async (req) => {
       const niche = await getNiche(req.params.slug);
       if (!niche) return notFound();
-      const [photos, notes] = await Promise.all([getPhotos(niche.id), getNotes(niche.id)]);
-      return html(nichePage({ niche, photos, notes, base: baseUrl(req) }));
+      const sessionId = new URL(req.url).searchParams.get("gift");
+      const thanks = sessionId && giftsEnabled() ? await confirmGift(sessionId).catch(() => null) : null;
+      const [photos, notes, gifts] = await Promise.all([getPhotos(niche.id), getNotes(niche.id), activeGifts(niche.id)]);
+      return html(nichePage({ niche, photos, notes, gifts, shopOpen: giftsEnabled(), thanks, base: baseUrl(req) }), 200, sessionId ? { "Cache-Control": "no-store" } : {});
     }),
 
     "/pet/:slug/remember.ics": safe(async (req) => {
@@ -681,8 +741,8 @@ const server = Bun.serve({
         const key = form ? String(form.get("key") ?? "") : "";
         const check = adminKeyCheck(req, key);
         if (check !== "ok") return adminDenied(check);
-        const [niches, counts] = await Promise.all([listNiches({ limit: 500 }), reminderCounts()]);
-        return html(adminListPage(niches, key, undefined, counts), 200, { "Cache-Control": "no-store", "Referrer-Policy": "same-origin" });
+        const [niches, counts, sales] = await Promise.all([listNiches({ limit: 500 }), reminderCounts(), giftSales()]);
+        return html(adminListPage(niches, key, undefined, counts, sales), 200, { "Cache-Control": "no-store", "Referrer-Policy": "same-origin" });
       }),
     },
     "/admin/keeper-link": {
@@ -700,7 +760,7 @@ const server = Bun.serve({
         await sql`UPDATE niches SET keeper_token_hash = ${hashToken(token)} WHERE id = ${niche.id}`;
         const url = `${baseUrl(req)}/keeper/${niche.slug}?token=${encodeURIComponent(token)}`;
         console.log(`Owner issued a new keeper link for ${niche.slug}`);
-        return html(adminListPage(niches, key, { name: niche.name, url }, await reminderCounts()), 200, { "Cache-Control": "no-store", "Referrer-Policy": "same-origin" });
+        return html(adminListPage(niches, key, { name: niche.name, url }, await reminderCounts(), await giftSales()), 200, { "Cache-Control": "no-store", "Referrer-Policy": "same-origin" });
       }),
     },
 
@@ -711,8 +771,8 @@ const server = Bun.serve({
         const p = messagePage("This keeper link isn't valid", "Please check you copied the whole private link you were given when the niche was created.", 403);
         return html(p.html, p.status, { "Referrer-Policy": "same-origin" });
       }
-      const [notes, photos] = await Promise.all([getNotes(niche.id, 500), getPhotos(niche.id)]);
-      return html(keeperPage({ niche, notes, photos, token: token!, base: baseUrl(req) }), 200, {
+      const [notes, photos, gifts] = await Promise.all([getNotes(niche.id, 500), getPhotos(niche.id), keeperGifts(niche.id)]);
+      return html(keeperPage({ niche, notes, photos, gifts, token: token!, base: baseUrl(req) }), 200, {
         "Referrer-Policy": "same-origin",
         "Cache-Control": "no-store",
       });
@@ -723,6 +783,18 @@ const server = Bun.serve({
     "/api/pet/:slug/flower": { POST: safe((req) => tribute(req, req.params.slug, "flower")) },
     "/api/pet/:slug/notes": { POST: safe((req) => addNote(req, req.params.slug)) },
     "/api/pet/:slug/remind": { POST: safe((req) => remindMe(req, req.params.slug)) },
+    "/api/pet/:slug/gift": { POST: safe((req) => startGift(req, req.params.slug)) },
+    "/api/stripe/webhook": { POST: safe(stripeWebhook) },
+    "/api/keeper/:slug/gift-hide": {
+      POST: safe(async (req) => {
+        const r = await keeperFromJson(req, req.params.slug);
+        if (!r.ok) return r.error;
+        const id = Number(r.data.giftId);
+        if (!Number.isInteger(id)) return json({ error: "Unknown gift" }, 400);
+        await setGiftHidden(r.niche.id, id, r.data.hidden === true);
+        return json({ ok: true });
+      }),
+    },
     "/api/keeper/:slug/remove-note": { POST: safe((req) => keeperAction(req, req.params.slug, "remove-note")) },
     "/api/keeper/:slug/delete": { POST: safe((req) => keeperAction(req, req.params.slug, "delete")) },
     "/api/keeper/:slug/details": { POST: safe((req) => keeperDetails(req, req.params.slug)) },

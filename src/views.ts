@@ -1,5 +1,8 @@
 import type { Niche, Note, Photo } from "./db";
 import { KINDS, consentText } from "./db";
+import type { GiftRow } from "./db";
+import { GIFTS, getGift, giftArt, price, stripeTestMode } from "./gifts";
+import type { GiftId } from "./gifts";
 import { analyticsTag } from "./analytics";
 import { ageYears, datesLine, esc, timeAgo, yearsLine } from "./util";
 
@@ -398,8 +401,79 @@ export function homePage(opts: {
   });
 }
 
-export function nichePage(opts: { niche: Niche; photos: Photo[]; notes: Note[]; base: string }) {
+function shortDate(d: Date): string {
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "Asia/Singapore" }).format(d);
+}
+
+function giftShelf(n: Niche, gifts: GiftRow[], shopOpen: boolean): string {
+  if (!gifts.length && !shopOpen) return "";
+  const items = gifts
+    .map((g) => {
+      const info = getGift(g.gift);
+      if (!info) return "";
+      return `<li class="gift-item${g.expires_at ? "" : " is-eternal"}">
+        <span class="gift-art">${giftArt(info.id)}</span>
+        <span class="gift-name">${esc(info.name)}</span>
+        ${g.from_name ? `<span class="gift-from">from ${esc(g.from_name)}</span>` : ""}
+        ${g.message ? `<span class="gift-msg">“${esc(g.message)}”</span>` : ""}
+        <span class="gift-until">${g.expires_at ? `until ${esc(shortDate(new Date(g.expires_at)))}` : "forever"}</span>
+      </li>`;
+    })
+    .join("");
+  return `<section id="gifts" class="gifts" aria-labelledby="gifts-h">
+      <div class="gifts-head">
+        <div>
+          <h2 id="gifts-h">Gifts for ${esc(n.name)}</h2>
+          <p class="muted">${gifts.length ? "Left with love by family and friends." : `Leave something special at ${esc(n.name)}'s niche.`}</p>
+        </div>
+        ${shopOpen ? `<button type="button" class="btn btn-gold" data-open-gifts>Leave a gift</button>` : ""}
+      </div>
+      ${gifts.length ? `<ul class="gift-shelf">${items}</ul>` : ""}
+    </section>`;
+}
+
+function giftDialog(n: Niche): string {
+  const options = GIFTS.map(
+    (g, i) => `<label class="gift-option">
+        <input type="radio" name="gift" value="${g.id}"${i === 1 ? " checked" : ""} data-price="${esc(price(g.cents))}">
+        <span class="gift-card">
+          <span class="gift-art">${giftArt(g.id as GiftId)}</span>
+          <span class="gift-name">${esc(g.name)}</span>
+          <span class="gift-price">${esc(price(g.cents))}</span>
+          <span class="gift-blurb">${esc(g.blurb)} ${g.days ? `Shown for ${g.days} days.` : "Shown forever."}</span>
+        </span>
+      </label>`,
+  ).join("");
+  return `<dialog class="giftmaker" data-gift-dialog aria-labelledby="gift-h">
+    <form class="giftmaker-inner" data-gift-form>
+      <h2 id="gift-h">Leave a gift for ${esc(n.name)}</h2>
+      <fieldset class="gift-grid"><legend class="visually-hidden">Choose a gift</legend>${options}</fieldset>
+      <div class="grid-2">
+        <div class="field"><label for="gift-from">From <span class="optional">(optional, shown with the gift)</span></label><input id="gift-from" name="from_name" type="text" maxlength="40" autocomplete="name"></div>
+        <div class="field"><label for="gift-msg">A short message <span class="optional">(optional)</span></label><input id="gift-msg" name="message" type="text" maxlength="120"></div>
+      </div>
+      <p class="muted small">Secure payment by Stripe: card, PayNow, Apple Pay or Google Pay. Gifts are digital and appear at ${esc(n.name)}'s niche as soon as payment goes through.${stripeTestMode() ? " <strong>Test mode: no real money is charged.</strong>" : ""}</p>
+      <p class="form-status" role="status" aria-live="polite" data-gift-status></p>
+      <div class="actions cardmaker-actions">
+        <button type="button" class="btn btn-outline" data-gift-close>Cancel</button>
+        <button type="submit" class="btn btn-dark" data-gift-pay>Continue to payment</button>
+      </div>
+    </form>
+  </dialog>`;
+}
+
+export function nichePage(opts: {
+  niche: Niche;
+  photos: Photo[];
+  notes: Note[];
+  base: string;
+  gifts?: GiftRow[];
+  shopOpen?: boolean;
+  thanks?: string | null;
+}) {
   const { niche: n, photos, notes, base } = opts;
+  const gifts = opts.gifts ?? [];
+  const shopOpen = !!opts.shopOpen;
   const url = `${base}/pet/${n.slug}`;
   const age = ageYears(n.born, n.passed);
   const kicker = [n.kind, age !== null ? `${age} ${age === 1 ? "year" : "years"}` : ""].filter(Boolean).join(" · ");
@@ -450,7 +524,8 @@ export function nichePage(opts: { niche: Niche; photos: Photo[]; notes: Note[]; 
        data-dates="${esc(dates)}"
        data-line="${esc(n.plaque_line ?? "")}"
        data-host="${esc(base.replace(/^https?:\/\//, ""))}">
-    ${annivLine ? `<div class="anniv" role="note">${icon.candle(22)}<span>${esc(annivLine)}</span><a class="btn btn-gold btn-sm" href="#tributes">Light a candle</a></div>` : ""}
+    ${opts.thanks ? `<div class="anniv gift-thanks" role="status"><span class="gift-art">${giftArt((getGift(opts.thanks)?.id ?? "bouquet") as GiftId)}</span><span>Thank you. Your ${esc(getGift(opts.thanks)?.name.toLowerCase() ?? "gift")} is now at ${esc(n.name)}'s niche.</span><a class="btn btn-gold btn-sm" href="#gifts">See it</a></div>` : ""}
+    ${annivLine ? `<div class="anniv" role="note">${icon.candle(22)}<span>${esc(annivLine)}</span><a class="btn btn-gold btn-sm" href="#tributes">Light a candle</a>${shopOpen ? `<button type="button" class="btn btn-outline btn-sm" data-open-gifts data-gift-pick="bundle">Send a remembrance gift</button>` : ""}</div>` : ""}
     <section class="niche-hero">
       <div class="alcove">
         ${portraitBox(n, "alcove-photo", 56)}
@@ -474,6 +549,8 @@ export function nichePage(opts: { niche: Niche; photos: Photo[]; notes: Note[]; 
     </section>
 
     ${gallery}
+
+    ${giftShelf(n, gifts, shopOpen)}
 
     <section id="tributes" class="tributes" aria-labelledby="trib-h">
       <div class="tributes-head">
@@ -520,6 +597,7 @@ export function nichePage(opts: { niche: Niche; photos: Photo[]; notes: Note[]; 
 
     ${rememberSection(n, url)}
   </div>
+  ${shopOpen ? giftDialog(n) : ""}
   <dialog class="cardmaker" data-card-dialog aria-labelledby="card-h">
     <div class="cardmaker-inner">
       <h2 id="card-h">Share ${esc(n.name)}'s story card</h2>
@@ -712,8 +790,20 @@ export function skyPage(opts: { niches: Niche[]; selected?: string; base: string
   });
 }
 
-export function keeperPage(opts: { niche: Niche; notes: Note[]; photos: Photo[]; token: string; base: string }) {
+export function keeperPage(opts: { niche: Niche; notes: Note[]; photos: Photo[]; gifts?: GiftRow[]; token: string; base: string }) {
   const { niche: n, notes, photos, token, base } = opts;
+  const keeperGiftRows = (opts.gifts ?? [])
+    .map((g) => {
+      const info = getGift(g.gift);
+      return `<li class="note">
+        <p><strong>${esc(info?.name ?? g.gift)}</strong>${g.from_name ? ` from ${esc(g.from_name)}` : ""}${g.message ? `: “${esc(g.message)}”` : ""}</p>
+        <div class="note-row">
+          <span class="muted small">${g.expires_at ? `until ${esc(shortDate(new Date(g.expires_at)))}` : "forever"}${g.hidden ? " · hidden" : ""}</span>
+          <button type="button" class="btn btn-outline btn-sm" data-gift-hide="${g.id}" data-hidden="${g.hidden ? "1" : "0"}">${g.hidden ? "Show" : "Hide"}</button>
+        </div>
+      </li>`;
+    })
+    .join("");
   const today = new Date().toISOString().slice(0, 10);
   const kinds = KINDS.map((k) => `<option${k === n.kind ? " selected" : ""}>${k}</option>`).join("");
   const photoTiles = photos
@@ -798,6 +888,16 @@ export function keeperPage(opts: { niche: Niche; notes: Note[]; photos: Photo[];
       </form>
     </section>
 
+    ${
+      keeperGiftRows
+        ? `<section class="section-tight">
+            <h2>Gifts</h2>
+            <p class="muted">Hiding a gift takes it off the niche page. It doesn't refund the person who sent it.</p>
+            <ul class="notes">${keeperGiftRows}</ul>
+            <p class="form-status" role="status" data-gift-hide-status></p>
+          </section>`
+        : ""
+    }
     <section class="section-tight">
       <h2>Notes from visitors</h2>
       <ul class="notes">${rows}</ul>
@@ -845,6 +945,8 @@ export function privacyPage() {
       </ul>
       <h2>Email reminders</h2>
       <p>We only email people who tick the box asking for reminders. Each email has an unsubscribe link, and unsubscribing stops all reminders about that pet. We don't sell or share email addresses.</p>
+      <h2>Gifts and payments</h2>
+      <p>Gifts are paid through Stripe. Your card or PayNow details go straight to Stripe; we never see or store them. We keep which gift was sent, the name and message you add (shown with the gift), and the amount. Gifts are digital and show at the niche for the time described when you choose them.</p>
       <h2>Removing things</h2>
       <p>Whoever created a niche can edit it or remove it, along with its photos, videos and notes, using their private keeper link. If you've lost it, or want your email or a note removed, contact the site owner.</p>
     </div>`,
@@ -868,7 +970,17 @@ export function adminLoginPage(error = "") {
   });
 }
 
-export function adminListPage(niches: Niche[], key: string, issued?: { name: string; url: string }, counts: Map<number, number> = new Map()) {
+export function adminListPage(
+  niches: Niche[],
+  key: string,
+  issued?: { name: string; url: string },
+  counts: Map<number, number> = new Map(),
+  sales?: { byGift: { gift: string; n: number; cents: number }[]; last30: { n: number; cents: number } },
+) {
+  const totalSales = sales ? sales.byGift.reduce((a, r) => a + r.cents, 0) : 0;
+  const salesRows = sales
+    ? sales.byGift.map((r) => `<li class="admin-row"><span>${esc(getGift(r.gift)?.name ?? r.gift)}</span><span class="muted">${r.n} sold · ${esc(price(r.cents))}</span></li>`).join("")
+    : "";
   const totalReminders = [...counts.values()].reduce((a, b) => a + b, 0);
   const rows = niches
     .map(
@@ -897,6 +1009,11 @@ export function adminListPage(niches: Niche[], key: string, issued?: { name: str
             </div>`
           : ""
       }
+      <section class="section-tight card">
+        <h2>Gift sales</h2>
+        <p class="muted">${sales ? `${esc(price(totalSales))} in total · ${sales.last30.n} gifts (${esc(price(sales.last30.cents))}) in the last 30 days.` : ""} Amounts are before Stripe's fees. Your Stripe dashboard has the full detail.</p>
+        ${salesRows ? `<ul class="admin-list">${salesRows}</ul>` : `<p class="muted small">No gifts yet.</p>`}
+      </section>
       <section class="section-tight card">
         <h2>Email reminder list</h2>
         <p class="muted">${totalReminders} active sign-ups. Download them as a spreadsheet (CSV) with each person's consent and unsubscribe link, ready for your email service.</p>

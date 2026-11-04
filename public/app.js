@@ -1020,3 +1020,88 @@
     else { document.execCommand("copy"); ok(); }
   });
 })();
+
+// ---------------- gifts ----------------
+(function () {
+  "use strict";
+  var niche = document.querySelector("[data-niche]");
+  var dialog = document.querySelector("[data-gift-dialog]");
+  function track(n, data) { try { if (window.umami) window.umami.track(n, data); } catch (e) {} }
+
+  // tidy the address after returning from payment
+  if (/[?&]gift=/.test(location.search) && history.replaceState) {
+    history.replaceState(null, "", location.pathname + location.hash);
+    if (document.querySelector(".gift-thanks")) track("Gift paid");
+  }
+
+  if (!niche || !dialog || typeof dialog.showModal !== "function") return;
+  var slug = niche.getAttribute("data-niche");
+  var form = dialog.querySelector("[data-gift-form]");
+  var payBtn = dialog.querySelector("[data-gift-pay]");
+  var status = dialog.querySelector("[data-gift-status]");
+
+  function selected() { return form.querySelector("input[name=gift]:checked"); }
+  function updatePay() {
+    var s = selected();
+    payBtn.textContent = s ? "Continue to payment · " + s.getAttribute("data-price") : "Continue to payment";
+  }
+  form.addEventListener("change", updatePay);
+  updatePay();
+
+  document.querySelectorAll("[data-open-gifts]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var pick = b.getAttribute("data-gift-pick");
+      if (pick) { var r = form.querySelector('input[name=gift][value="' + pick + '"]'); if (r) r.checked = true; }
+      updatePay();
+      status.textContent = "";
+      dialog.showModal();
+      track("Gift shop opened", { from: pick ? "anniversary" : "shelf" });
+    });
+  });
+  dialog.querySelector("[data-gift-close]").addEventListener("click", function () { dialog.close(); });
+  dialog.addEventListener("click", function (e) { if (e.target === dialog) dialog.close(); });
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var s = selected();
+    if (!s) { status.textContent = "Please choose a gift."; return; }
+    payBtn.disabled = true;
+    status.classList.remove("is-error");
+    status.textContent = "Opening secure payment…";
+    fetch("/api/pet/" + encodeURIComponent(slug) + "/gift", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ gift: s.value, from_name: form.elements.from_name.value, message: form.elements.message.value }),
+    })
+      .then(function (r) { return r.json().then(function (b) { if (!r.ok) throw new Error(b.error || "Something went wrong."); return b; }); })
+      .then(function (b) {
+        track("Gift checkout started", { gift: s.value });
+        location.href = b.url;
+      })
+      .catch(function (err) {
+        status.textContent = err.message;
+        status.classList.add("is-error");
+        payBtn.disabled = false;
+      });
+  });
+})();
+
+// keeper: hide or show a gift
+(function () {
+  var keeper = document.querySelector("[data-keeper]");
+  if (!keeper) return;
+  var slug = keeper.getAttribute("data-slug"), token = keeper.getAttribute("data-token");
+  var st = keeper.querySelector("[data-gift-hide-status]");
+  keeper.querySelectorAll("[data-gift-hide]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      b.disabled = true;
+      fetch("/api/keeper/" + encodeURIComponent(slug) + "/gift-hide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: token, giftId: Number(b.getAttribute("data-gift-hide")), hidden: b.getAttribute("data-hidden") !== "1" }),
+      })
+        .then(function (r) { if (!r.ok) throw new Error("Couldn't update the gift. Please try again."); location.reload(); })
+        .catch(function (err) { if (st) st.textContent = err.message; b.disabled = false; });
+    });
+  });
+})();

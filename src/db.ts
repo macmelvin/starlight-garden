@@ -91,6 +91,24 @@ export async function migrate() {
       UNIQUE (niche_id, email)
     )`;
   await sql`CREATE INDEX IF NOT EXISTS reminders_niche_idx ON reminders(niche_id)`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS gifts (
+      id SERIAL PRIMARY KEY,
+      niche_id INTEGER NOT NULL REFERENCES niches(id) ON DELETE CASCADE,
+      gift TEXT NOT NULL,
+      from_name TEXT,
+      message TEXT,
+      amount_cents INTEGER NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'sgd',
+      days INTEGER,
+      stripe_session_id TEXT UNIQUE,
+      status TEXT NOT NULL DEFAULT 'pending',
+      hidden BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      paid_at TIMESTAMPTZ,
+      expires_at TIMESTAMPTZ
+    )`;
+  await sql`CREATE INDEX IF NOT EXISTS gifts_niche_idx ON gifts(niche_id, status)`;
   // Pets are shown by first name only, with a capital first letter ("BELLA NG" -> "Bella").
   await sql`
     UPDATE niches SET name = initcap(split_part(btrim(name), ' ', 1))
@@ -203,4 +221,76 @@ export async function exportReminders() {
     email: string; role: string; pet: string; slug: string; remembrance_day: string | null;
     consent_at: Date; consent_text: string; unsubscribe_token: string;
   }[];
+}
+
+// ---------- gifts ----------
+
+export type GiftRow = {
+  id: number;
+  niche_id: number;
+  gift: string;
+  from_name: string | null;
+  message: string | null;
+  amount_cents: number;
+  status: string;
+  hidden: boolean;
+  paid_at: Date | null;
+  expires_at: Date | null;
+};
+
+export async function createGiftRow(nicheId: number, gift: string, fromName: string | null, message: string | null, cents: number, days: number | null) {
+  const [row] = await sql`
+    INSERT INTO gifts (niche_id, gift, from_name, message, amount_cents, days)
+    VALUES (${nicheId}, ${gift}, ${fromName}, ${message}, ${cents}, ${days})
+    RETURNING id`;
+  return row.id as number;
+}
+
+export async function setGiftSession(id: number, sessionId: string) {
+  await sql`UPDATE gifts SET stripe_session_id = ${sessionId} WHERE id = ${id}`;
+}
+
+/** Marks a gift paid once (idempotent). Returns true if this call did it. */
+export async function markGiftPaid(id: number, sessionId: string, amount: number): Promise<boolean> {
+  const rows = await sql`
+    UPDATE gifts SET status = 'paid', paid_at = now(),
+      expires_at = CASE WHEN days IS NULL THEN NULL ELSE now() + make_interval(days => days) END
+    WHERE id = ${id} AND stripe_session_id = ${sessionId} AND status = 'pending' AND amount_cents = ${amount}
+    RETURNING id`;
+  return rows.length > 0;
+}
+
+export async function activeGifts(nicheId: number): Promise<GiftRow[]> {
+  return (await sql`
+    SELECT id, niche_id, gift, from_name, message, amount_cents, status, hidden, paid_at, expires_at FROM gifts
+    WHERE niche_id = ${nicheId} AND status = 'paid' AND hidden = false
+      AND (expires_at IS NULL OR expires_at > now())
+    ORDER BY (expires_at IS NULL) DESC, paid_at DESC
+    LIMIT 60`) as GiftRow[];
+}
+
+export async function keeperGifts(nicheId: number): Promise<GiftRow[]> {
+  return (await sql`
+    SELECT id, niche_id, gift, from_name, message, amount_cents, status, hidden, paid_at, expires_at FROM gifts
+    WHERE niche_id = ${nicheId} AND status = 'paid' AND (expires_at IS NULL OR expires_at > now())
+    ORDER BY paid_at DESC`) as GiftRow[];
+}
+
+export async function setGiftHidden(nicheId: number, giftId: number, hidden: boolean) {
+  await sql`UPDATE gifts SET hidden = ${hidden} WHERE id = ${giftId} AND niche_id = ${nicheId}`;
+}
+
+export async function findGiftBySession(sessionId: string) {
+  const rows = await sql`SELECT id, niche_id, gift, status, amount_cents FROM gifts WHERE stripe_session_id = ${sessionId} LIMIT 1`;
+  return (rows[0] as { id: number; niche_id: number; gift: string; status: string; amount_cents: number }) ?? null;
+}
+
+export async function giftSales() {
+  const rows = await sql`
+    SELECT gift, count(*)::int AS n, coalesce(sum(amount_cents), 0)::int AS cents
+    FROM gifts WHERE status = 'paid' GROUP BY gift ORDER BY cents DESC`;
+  const last30 = await sql`
+    SELECT count(*)::int AS n, coalesce(sum(amount_cents), 0)::int AS cents
+    FROM gifts WHERE status = 'paid' AND paid_at > now() - interval '30 days'`;
+  return { byGift: rows as { gift: string; n: number; cents: number }[], last30: last30[0] as { n: number; cents: number } };
 }

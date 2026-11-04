@@ -58,6 +58,21 @@ year" section). Each sign-up stores the email, the pet, the exact consent wordin
 unsubscribe link (`/unsubscribe?t=…`). Emails are not sent yet: the owner downloads the list as CSV from
 `/admin` for an email service. `/privacy` explains what is kept.
 
+## Gifts (Stripe)
+
+Visitors can leave a paid digital gift at a niche (`src/gifts.ts` has the catalogue: treat S$2, bouquet S$3,
+soft toy S$4, lotus lantern S$5 and remembrance bundle S$9 for 30 days; eternal lantern S$28 forever).
+Payment uses Stripe Checkout in SGD (cards, PayNow, Apple Pay and Google Pay as enabled in the Stripe
+dashboard). A gift is shown once Stripe confirms payment, either when the visitor returns or through the
+webhook. The shop stays hidden until `STRIPE_SECRET_KEY` is set.
+
+| Variable | |
+| --- | --- |
+| `STRIPE_SECRET_KEY` | `sk_test_…` to try it, `sk_live_…` to take real payments |
+| `STRIPE_WEBHOOK_SECRET` | `whsec_…` from the webhook endpoint `/api/stripe/webhook` (events `checkout.session.completed`, `checkout.session.async_payment_succeeded`) |
+
+Keepers can hide a gift; the owner page shows sales totals.
+
 ## Analytics (Umami)
 
 Set `UMAMI_WEBSITE_ID` to switch it on. Besides page views it records these events:
