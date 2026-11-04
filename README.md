@@ -32,6 +32,8 @@ There are no accounts. Whoever creates a niche gets a private keeper link; anyon
 | `S3_ACCESS_KEY_ID` | `${{photos.ACCESS_KEY_ID}}` |
 | `S3_SECRET_ACCESS_KEY` | `${{photos.SECRET_ACCESS_KEY}}` |
 | `S3_URL_STYLE` | `virtual-host` (default) or `path` |
+| `UMAMI_WEBSITE_ID` | your Umami website ID — turns on analytics |
+| `UMAMI_SCRIPT_URL` | optional, only if you self-host Umami (defaults to Umami Cloud) |
 | `PUBLIC_URL` | optional, e.g. `https://starlightgarden.sg` once you add a custom domain |
 
 Railway sets `PORT` and `RAILWAY_PUBLIC_DOMAIN` itself.
@@ -42,6 +44,13 @@ Railway sets `PORT` and `RAILWAY_PUBLIC_DOMAIN` itself.
 bun install
 DATABASE_URL=postgres://… S3_ENDPOINT=… S3_BUCKET=… S3_ACCESS_KEY_ID=… S3_SECRET_ACCESS_KEY=… bun run dev
 ```
+
+## Analytics (Umami)
+
+Set `UMAMI_WEBSITE_ID` to switch it on. Besides page views it records these events:
+Create niche click, Niche created, Niche create failed, Light a candle, Leave flowers,
+Leave a note, and Send a Light (with where it was tapped). Query strings are not sent,
+visitors with Do Not Track are skipped, and private keeper pages are never tracked.
 
 ## Limits and safeguards
 

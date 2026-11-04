@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { analyticsOrigins } from "./src/analytics";
 import { KINDS, countNiches, getNiche, getNotes, getPhotos, listNiches, migrate, sql } from "./src/db";
 import { KEY_PATTERN, deletePhotos, photoFile, putPhoto, s3, storageConfigured } from "./src/storage";
 import {
@@ -20,8 +21,8 @@ const SECURITY_HEADERS: Record<string, string> = {
     "img-src 'self' data: blob:",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src https://fonts.gstatic.com",
-    "script-src 'self'",
-    "connect-src 'self'",
+    ["script-src 'self'", ...analyticsOrigins].join(" "),
+    ["connect-src 'self'", ...analyticsOrigins].join(" "),
     "form-action 'self'",
     "frame-ancestors 'none'",
     "base-uri 'self'",

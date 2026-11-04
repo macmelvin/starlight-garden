@@ -19,6 +19,10 @@
     });
   }
 
+  function track(name, data) {
+    try { if (window.umami && typeof window.umami.track === "function") window.umami.track(name, data); } catch (e) {}
+  }
+
   function setCount(el, n) {
     if (!el) return;
     el.setAttribute("data-n", String(n));
@@ -75,6 +79,7 @@
         if (btn.getAttribute("aria-pressed") === "true") return;
         markPressed(btn, kind);
         store.set(key, "1");
+        track(kind === "candle" ? "Light a candle" : "Leave flowers");
         if (kind === "candle") addFlame();
         postJSON("/api/pet/" + encodeURIComponent(slug) + "/" + kind)
           .then(function (res) {
@@ -106,6 +111,7 @@
             var n = niche.querySelector('[data-count="notes"]');
             if (n) setCount(n, parseInt(n.textContent, 10) + 1);
             setStatus(status, "Thank you. Your note has been left for " + petName + ".");
+            track("Leave a note");
           })
           .catch(function (err) { setStatus(status, err.message, true); })
           .finally(function () { btn.disabled = false; });
@@ -309,12 +315,14 @@
           done.querySelector("[data-done-visit]").textContent = "Visit " + name + "'s niche";
           done.querySelector("[data-done-share]").setAttribute("href", res.shareUrl);
           store.set("sg:keeper:" + res.slug, res.keeperUrl);
+          track("Niche created", { kind: form.elements.kind.value, photos: files.length });
           done.scrollIntoView({ behavior: "smooth", block: "start" });
           done.querySelector("h2").setAttribute("tabindex", "-1");
           done.querySelector("h2").focus({ preventScroll: true });
         })
         .catch(function (err) {
           setStatus(statusEl, err.message, true);
+          track("Niche create failed", { reason: String(err.message).slice(0, 80) });
           submit.disabled = false;
         });
     });

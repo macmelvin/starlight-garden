@@ -1,5 +1,6 @@
 import type { Niche, Note, Photo } from "./db";
 import { KINDS } from "./db";
+import { analyticsTag } from "./analytics";
 import { ageYears, datesLine, esc, timeAgo, yearsLine } from "./util";
 
 export const SITE_NAME = "Starlight Garden";
@@ -54,7 +55,7 @@ function nav(variant: "hero" | "compact" | "night") {
       <a href="/#wall">The Garden Wall</a>
       <a href="/sky">Night Sky</a>
       ${variant === "hero" ? `<a href="/#how">How it works</a>` : ""}
-      <a class="btn btn-gold" href="/create">Create a niche</a>
+      <a class="btn btn-gold" href="/create" data-umami-event="Create niche click" data-umami-event-from="nav">Create a niche</a>
     </div>
   </nav>`;
 }
@@ -109,6 +110,7 @@ ${o.image ? `<meta property="og:image" content="${esc(o.image)}"><meta name="twi
 <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/app.css?v=${ASSET_VERSION}">
 <script src="/static/app.js?v=${ASSET_VERSION}" defer></script>
+${o.noindex ? "" : analyticsTag()}
 </head>
 <body class="${o.night ? "night-page" : ""}">
 <a class="skip" href="#main">Skip to content</a>
@@ -164,7 +166,7 @@ export function homePage(opts: { niches: Niche[]; q: string; kind: string; total
     wallInner = `<div class="empty">
       <p class="empty-title">The garden wall is waiting for its first friend.</p>
       <p>Create a niche and fill it with their photos and your words.</p>
-      <a class="btn btn-dark" href="/create">Create the first niche</a>
+      <a class="btn btn-dark" href="/create" data-umami-event="Create niche click" data-umami-event-from="empty wall">Create the first niche</a>
     </div>`;
   } else {
     wallInner = `<div class="empty">
@@ -277,7 +279,7 @@ export function nichePage(opts: { niche: Niche; photos: Photo[]; notes: Note[]; 
         <div class="actions">
           <a class="btn btn-dark" href="#tributes">Leave a tribute</a>
           <a class="btn btn-outline" href="/sky?pet=${esc(n.slug)}">See ${esc(n.name)}'s star</a>
-          <a class="btn btn-wa" data-share href="${esc(waLink(msg))}" target="_blank" rel="noopener" aria-label="Send a Light: share ${esc(n.name)}'s niche on WhatsApp">${icon.share()} Send a Light</a>
+          <a class="btn btn-wa" data-share data-umami-event="Send a Light" data-umami-event-from="niche top" href="${esc(waLink(msg))}" target="_blank" rel="noopener" aria-label="Send a Light: share ${esc(n.name)}'s niche on WhatsApp">${icon.share()} Send a Light</a>
         </div>
       </div>
     </section>
@@ -307,7 +309,7 @@ export function nichePage(opts: { niche: Niche; photos: Photo[]; notes: Note[]; 
           <span data-share-hint>Invite the people who loved ${esc(n.name)} to visit and light a candle with you.</span>
           <span class="light-msg">“<span data-share-text>${esc(msg)}</span>”</span>
         </div>
-        <a class="btn btn-wa btn-lg" data-share href="${esc(waLink(msg))}" target="_blank" rel="noopener" aria-label="Send a Light: share ${esc(n.name)}'s niche on WhatsApp">${icon.share(22)} Send a Light on WhatsApp</a>
+        <a class="btn btn-wa btn-lg" data-share data-umami-event="Send a Light" data-umami-event-from="tributes" href="${esc(waLink(msg))}" target="_blank" rel="noopener" aria-label="Send a Light: share ${esc(n.name)}'s niche on WhatsApp">${icon.share(22)} Send a Light on WhatsApp</a>
       </div>
 
       <form class="note-form" data-note-form>
@@ -418,7 +420,7 @@ export function createPage(base: string) {
       </div>
       <div class="actions">
         <a class="btn btn-dark" data-done-visit href="/">Visit their niche</a>
-        <a class="btn btn-wa" data-done-share href="#" target="_blank" rel="noopener">${icon.share()} Send a Light</a>
+        <a class="btn btn-wa" data-done-share data-umami-event="Send a Light" data-umami-event-from="niche created" href="#" target="_blank" rel="noopener">${icon.share()} Send a Light</a>
       </div>
     </div>
   </div>`;
