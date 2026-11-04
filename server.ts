@@ -74,13 +74,27 @@ function text(form: FormData, name: string, max: number): string {
   return typeof v === "string" ? v.trim().slice(0, max) : "";
 }
 
-/** Owner key check, with a strict per-IP limit on wrong guesses. */
-function adminKeyOk(req: Request, key: string): boolean {
+/** Owner key check. Only wrong guesses count towards the lockout. */
+const adminFails = new Map<string, { count: number; reset: number }>();
+function adminKeyCheck(req: Request, key: string): "ok" | "wrong" | "locked" {
   const expected = process.env.ADMIN_KEY ?? "";
-  if (expected.length < 16) return false;
+  if (expected.length < 16) return "wrong";
   const ip = clientIp(req);
-  if (!allow(`admin-try:${ip}`, 10, 60 * 60 * 1000)) return false;
-  return safeEqual(hashToken(key), hashToken(expected));
+  const now = Date.now();
+  const f = adminFails.get(ip);
+  if (f && f.reset > now && f.count >= 10) return "locked";
+  if (safeEqual(hashToken(key.trim()), hashToken(expected))) return "ok";
+  if (!f || f.reset <= now) adminFails.set(ip, { count: 1, reset: now + 60 * 60 * 1000 });
+  else f.count++;
+  return "wrong";
+}
+
+function adminDenied(result: "wrong" | "locked") {
+  return html(
+    adminLoginPage(result === "locked" ? "Too many wrong tries. Please wait an hour and try again." : "That key isn't right."),
+    403,
+    { "Cache-Control": "no-store" },
+  );
 }
 
 async function verifyKeeper(slug: string, token: unknown) {
@@ -582,7 +596,8 @@ const server = Bun.serve({
       POST: safe(async (req) => {
         const form = await req.formData().catch(() => null);
         const key = form ? String(form.get("key") ?? "") : "";
-        if (!adminKeyOk(req, key)) return html(adminLoginPage("That key isn't right."), 403, { "Cache-Control": "no-store" });
+        const check = adminKeyCheck(req, key);
+        if (check !== "ok") return adminDenied(check);
         const niches = await listNiches({ limit: 500 });
         return html(adminListPage(niches, key), 200, { "Cache-Control": "no-store", "Referrer-Policy": "same-origin" });
       }),
@@ -592,7 +607,8 @@ const server = Bun.serve({
         if (!sameOrigin(req)) return new Response("Not allowed", { status: 403 });
         const form = await req.formData().catch(() => null);
         const key = form ? String(form.get("key") ?? "") : "";
-        if (!adminKeyOk(req, key)) return html(adminLoginPage("That key isn't right."), 403, { "Cache-Control": "no-store" });
+        const check = adminKeyCheck(req, key);
+        if (check !== "ok") return adminDenied(check);
         const slug = String(form!.get("slug") ?? "");
         const niche = await getNiche(slug);
         const niches = await listNiches({ limit: 500 });
