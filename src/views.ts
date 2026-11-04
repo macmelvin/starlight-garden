@@ -177,7 +177,7 @@ export function homePage(opts: { niches: Niche[]; q: string; kind: string; total
     <div class="moon" aria-hidden="true"></div>
     <div class="wrap hero-inner">
       <p class="kicker">An online pet columbarium</p>
-      <h1>A quiet garden to visit the friends who walked beside us</h1>
+      <h1>A quiet starlit garden to visit our furkids who walked beside us</h1>
       <p class="lede">Give your pet a niche on the garden wall. Fill it with their photos and your words, and come back to sit with them whenever you need to.</p>
       <form class="find" action="/" method="get" role="search">
         <div class="find-field">
