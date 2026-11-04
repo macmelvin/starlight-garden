@@ -375,3 +375,9 @@ legend { font-family: var(--display); font-size: 26px; color: var(--night); marg
 .kp-add label { cursor: pointer; }
 .kp-details { display: flex; flex-direction: column; gap: 16px; }
 .kp-details .form-actions { align-items: center; justify-content: space-between; }
+
+/* ---------- owner tools ---------- */
+.admin-login { max-width: 420px; display: flex; flex-direction: column; gap: 14px; }
+.admin-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.admin-row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; padding: 12px 16px; background: #fff; border: 1px solid #E2DCCF; border-radius: 12px; }
+.admin .keeper-box { margin-bottom: 8px; }

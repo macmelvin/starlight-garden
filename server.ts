@@ -6,7 +6,7 @@ import { KEY_PATTERN, deletePhotos, getThumb, photoFile, putPhoto, s3, storageCo
 import {
   allow, clientIp, hashToken, petFirstName, isIsoDate, newKeeperToken, randomId, safeEqual, slugify, sniffImage, TYPE_BY_EXT,
 } from "./src/util";
-import { createPage, homePage, keeperPage, messagePage, nichePage, noteItem, reminderIcs, skyPage } from "./src/views";
+import { adminListPage, adminLoginPage, createPage, homePage, keeperPage, messagePage, nichePage, noteItem, reminderIcs, skyPage } from "./src/views";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const MAX_PHOTOS = 12;
@@ -72,6 +72,15 @@ function sameOrigin(req: Request): boolean {
 function text(form: FormData, name: string, max: number): string {
   const v = form.get(name);
   return typeof v === "string" ? v.trim().slice(0, max) : "";
+}
+
+/** Owner key check, with a strict per-IP limit on wrong guesses. */
+function adminKeyOk(req: Request, key: string): boolean {
+  const expected = process.env.ADMIN_KEY ?? "";
+  if (expected.length < 16) return false;
+  const ip = clientIp(req);
+  if (!allow(`admin-try:${ip}`, 10, 60 * 60 * 1000)) return false;
+  return safeEqual(hashToken(key), hashToken(expected));
 }
 
 async function verifyKeeper(slug: string, token: unknown) {
@@ -567,6 +576,34 @@ const server = Bun.serve({
         },
       });
     }),
+
+    "/admin": {
+      GET: safe(() => html(adminLoginPage(), 200, { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" })),
+      POST: safe(async (req) => {
+        const form = await req.formData().catch(() => null);
+        const key = form ? String(form.get("key") ?? "") : "";
+        if (!adminKeyOk(req, key)) return html(adminLoginPage("That key isn't right."), 403, { "Cache-Control": "no-store" });
+        const niches = await listNiches({ limit: 500 });
+        return html(adminListPage(niches, key), 200, { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
+      }),
+    },
+    "/admin/keeper-link": {
+      POST: safe(async (req) => {
+        if (!sameOrigin(req)) return new Response("Not allowed", { status: 403 });
+        const form = await req.formData().catch(() => null);
+        const key = form ? String(form.get("key") ?? "") : "";
+        if (!adminKeyOk(req, key)) return html(adminLoginPage("That key isn't right."), 403, { "Cache-Control": "no-store" });
+        const slug = String(form!.get("slug") ?? "");
+        const niche = await getNiche(slug);
+        const niches = await listNiches({ limit: 500 });
+        if (!niche) return html(adminListPage(niches, key), 404, { "Cache-Control": "no-store" });
+        const token = newKeeperToken();
+        await sql`UPDATE niches SET keeper_token_hash = ${hashToken(token)} WHERE id = ${niche.id}`;
+        const url = `${baseUrl(req)}/keeper/${niche.slug}?token=${encodeURIComponent(token)}`;
+        console.log(`Owner issued a new keeper link for ${niche.slug}`);
+        return html(adminListPage(niches, key, { name: niche.name, url }), 200, { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
+      }),
+    },
 
     "/keeper/:slug": safe(async (req) => {
       const token = new URL(req.url).searchParams.get("token");

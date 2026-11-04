@@ -947,3 +947,17 @@
   dialog.addEventListener("click", function (e) { if (e.target === dialog) dialog.close(); });
   if (location.hash === "#story-card") open();
 })();
+
+// owner page copy button
+(function () {
+  if (document.querySelector("[data-create]")) return;
+  var btn = document.querySelector("[data-copy]");
+  var field = document.querySelector("[data-keeper-url]");
+  if (!btn || !field) return;
+  btn.addEventListener("click", function () {
+    field.select();
+    var ok = function () { btn.textContent = "Copied"; setTimeout(function () { btn.textContent = "Copy link"; }, 2000); };
+    if (navigator.clipboard) navigator.clipboard.writeText(field.value).then(ok, function () { document.execCommand("copy"); ok(); });
+    else { document.execCommand("copy"); ok(); }
+  });
+})();

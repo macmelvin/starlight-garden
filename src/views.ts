@@ -795,6 +795,60 @@ export function keeperPage(opts: { niche: Niche; notes: Note[]; photos: Photo[];
   return layout({ title: `Keeper · ${n.name} · ${SITE_NAME}`, header: "compact", body, noindex: true });
 }
 
+export function adminLoginPage(error = "") {
+  return layout({
+    title: `Owner · ${SITE_NAME}`,
+    header: "compact",
+    noindex: true,
+    body: `<div class="wrap section admin">
+      <h1 class="page-title">Owner tools</h1>
+      <p class="muted lede-dark">For the site owner only.</p>
+      <form class="card admin-login" method="post" action="/admin">
+        <div class="field"><label for="admin-key">Owner key</label><input id="admin-key" name="key" type="password" autocomplete="current-password" required></div>
+        ${error ? `<p class="form-status is-error" role="alert">${esc(error)}</p>` : ""}
+        <button class="btn btn-dark" type="submit">Open</button>
+      </form>
+    </div>`,
+  });
+}
+
+export function adminListPage(niches: Niche[], key: string, issued?: { name: string; url: string }) {
+  const rows = niches
+    .map(
+      (n) => `<li class="admin-row">
+        <span><strong>${esc(n.name)}</strong> <span class="muted small">· ${esc(n.kind)} · /pet/${esc(n.slug)}${n.keeper_name ? ` · kept by ${esc(n.keeper_name)}` : ""}</span></span>
+        <form method="post" action="/admin/keeper-link">
+          <input type="hidden" name="key" value="${esc(key)}">
+          <input type="hidden" name="slug" value="${esc(n.slug)}">
+          <button class="btn btn-outline btn-sm" type="submit">New keeper link</button>
+        </form>
+      </li>`,
+    )
+    .join("");
+  return layout({
+    title: `Owner · ${SITE_NAME}`,
+    header: "compact",
+    noindex: true,
+    body: `<div class="wrap section admin">
+      <h1 class="page-title">Owner tools</h1>
+      ${
+        issued
+          ? `<div class="card keeper-box" role="status">
+              <p><strong>New keeper link for ${esc(issued.name)}.</strong> Send it only to the pet's owner. Their old keeper link no longer works.</p>
+              <div class="copy-row"><input type="text" readonly value="${esc(issued.url)}" aria-label="New keeper link" data-keeper-url><button type="button" class="btn btn-outline" data-copy>Copy link</button></div>
+              <div class="actions"><a class="btn btn-dark" href="${esc(issued.url)}">Open keeper page</a></div>
+            </div>`
+          : ""
+      }
+      <section class="section-tight">
+        <h2>Niches (${niches.length})</h2>
+        <p class="muted">Issue a fresh private keeper link when an owner has lost theirs. It replaces the old link.</p>
+        <ul class="admin-list">${rows || `<li class="muted">No niches yet.</li>`}</ul>
+      </section>
+    </div>`,
+  });
+}
+
 export function messagePage(title: string, text: string, status = 404) {
   return {
     status,

@@ -15,7 +15,9 @@ An online pet columbarium. Pet owners create a niche for a pet who has passed, u
 
 Each niche page also has a **story card** maker (9:16 story or 4:5 post image, drawn in the browser, shared with the phone's share sheet or saved), **a yearly remembrance reminder** on the day the pet passed (Google Calendar link or an .ics file for Apple and others), and a gentle banner on that anniversary (Singapore time). Birthdays are shown on the plaque but don't get reminders.
 
-There are no accounts. Whoever creates a niche gets a private keeper link; anyone with that link can manage the niche.
+There are no accounts. The site owner can issue a fresh keeper link for any niche at `/admin` using the `ADMIN_KEY` service variable (the old link stops working).
+
+ Whoever creates a niche gets a private keeper link; anyone with that link can manage the niche.
 
 ## Stack
 
@@ -37,6 +39,7 @@ There are no accounts. Whoever creates a niche gets a private keeper link; anyon
 | `S3_URL_STYLE` | `virtual-host` (default) or `path` |
 | `UMAMI_WEBSITE_ID` | your Umami website ID — turns on analytics |
 | `UMAMI_SCRIPT_URL` | optional, only if you self-host Umami (defaults to Umami Cloud) |
+| `ADMIN_KEY` | owner key for `/admin` (at least 16 characters) |
 | `PUBLIC_URL` | optional, e.g. `https://starlightgarden.sg` once you add a custom domain |
 
 Railway sets `PORT` and `RAILWAY_PUBLIC_DOMAIN` itself.
