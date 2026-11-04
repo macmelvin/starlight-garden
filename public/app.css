@@ -100,11 +100,12 @@ h2 { font-family: var(--display); font-weight: 400; font-size: clamp(28px, 3.4vw
 .nav-links a:not(.btn):hover { color: #fff; text-decoration: underline; }
 .night-page .nav-links a.btn-gold { color: var(--night); }
 
-.hero .moon { position: absolute; right: 12%; top: 120px; width: 84px; height: 84px; border-radius: 50%; background: #F6E7C1; box-shadow: 0 0 60px 18px rgba(246,231,193,.25); }
+.hero .moon { position: absolute; right: max(24px, calc((100vw - 1200px) / 2 + 20px)); top: 110px; width: 84px; height: 84px; z-index: 1; border-radius: 50%; background: #F6E7C1; box-shadow: 0 0 60px 18px rgba(246,231,193,.25); }
 .hero-inner { padding-top: 64px; padding-bottom: 200px; position: relative; z-index: 2; }
 .kicker { margin: 0 0 14px; text-transform: uppercase; letter-spacing: 3px; font-size: 14px; color: var(--gold); font-weight: 700; }
 .kicker.sage { color: var(--sage); }
-.hero h1 { font-family: var(--display); font-weight: 400; font-size: clamp(34px, 5vw, 64px); line-height: 1.1; margin: 0; max-width: 780px; color: var(--night-text); }
+.hero h1 { font-family: var(--display); font-weight: 400; font-size: clamp(34px, 5vw, 64px); line-height: 1.1; margin: 0; max-width: 700px; color: var(--night-text); }
+@media (max-width: 960px) { .hero .moon { display: none; } }
 .lede { font-size: 20px; line-height: 1.6; color: var(--night-muted); max-width: 600px; margin: 22px 0 34px; }
 .find { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; max-width: 640px; }
 .find-field { flex: 1 1 260px; display: flex; flex-direction: column; gap: 6px; }
@@ -292,7 +293,6 @@ legend { font-family: var(--display); font-size: 26px; color: var(--night); marg
 @media (max-width: 640px) {
   body { font-size: 16px; }
   .hero-inner { padding-top: 32px; padding-bottom: 150px; }
-  .hero .moon { width: 56px; height: 56px; top: 96px; right: 8%; }
   .wall { padding: 14px; }
   .wall-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .plaque-name { font-size: 20px; }
