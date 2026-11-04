@@ -544,6 +544,7 @@ export function nichePage(opts: {
           <a class="btn btn-outline" href="/sky?pet=${esc(n.slug)}">See ${esc(n.name)}'s star</a>
           <a class="btn btn-wa" data-share data-umami-event="Send a Light" data-umami-event-from="niche top" href="${esc(waLink(msg))}" target="_blank" rel="noopener" aria-label="Send a Light: share ${esc(n.name)}'s niche on WhatsApp">${icon.share()} Send a Light</a>
           <button type="button" class="btn btn-outline" data-open-card>${icon.card()} Story card</button>
+          ${shopOpen ? `<button type="button" class="btn btn-gold btn-gift-top" data-open-gifts>${icon.flower()} Leave a gift</button>` : ""}
         </div>
       </div>
     </section>
