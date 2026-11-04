@@ -169,25 +169,15 @@ export function todaySG(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore" }).format(new Date());
 }
 
-function ordinal(n: number): string {
-  const s = ["th", "st", "nd", "rd"];
-  const v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
-}
-
 function dayMonth(iso: string): string {
   const [, m, d] = iso.split("-").map(Number);
   return `${d} ${MONTH_NAMES[m - 1]}`;
 }
 
-/** A gentle line for the niche page when today is their birthday or anniversary. */
+/** A gentle line for the niche page on the anniversary of the day they passed. */
 export function anniversaryToday(n: Pick<Niche, "name" | "born" | "passed">, today = todaySG()): string | null {
   const md = today.slice(5);
   const year = Number(today.slice(0, 4));
-  if (n.born && n.born.slice(5) === md) {
-    const age = year - Number(n.born.slice(0, 4));
-    return age > 0 ? `Today would have been ${n.name}'s ${ordinal(age)} birthday.` : `Today is ${n.name}'s birthday.`;
-  }
   if (n.passed && n.passed.slice(5) === md) {
     const yrs = year - Number(n.passed.slice(0, 4));
     if (yrs > 0) return `Remembering ${n.name}, ${yrs === 1 ? "one year" : `${yrs} years`} since they crossed to the stars.`;
@@ -199,7 +189,6 @@ export type ReminderKind = "birthday" | "passing";
 
 export function reminderEvents(n: Pick<Niche, "name" | "born" | "passed">) {
   const out: { kind: ReminderKind; date: string; label: string; title: string }[] = [];
-  if (n.born) out.push({ kind: "birthday", date: n.born, label: `${n.name}'s birthday · ${dayMonth(n.born)}`, title: `${n.name}'s birthday` });
   if (n.passed) out.push({ kind: "passing", date: n.passed, label: `Remembering ${n.name} · ${dayMonth(n.passed)}`, title: `Remembering ${n.name}` });
   return out;
 }
@@ -296,7 +285,7 @@ function rememberSection(n: Niche, url: string): string {
     .join("");
   return `<section id="remember" class="remember" aria-labelledby="remember-h">
       <h2 id="remember-h">Remember ${esc(n.name)} every year</h2>
-      <p class="muted">Add a gentle yearly reminder to your phone's calendar, so you never miss a day to come back and light a candle.</p>
+      <p class="muted">Add a gentle yearly reminder to your phone's calendar on the day ${esc(n.name)} passed, so you can come back and light a candle.</p>
       <ul class="remember-list">${rows}</ul>
     </section>`;
 }

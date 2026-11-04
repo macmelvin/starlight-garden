@@ -348,11 +348,10 @@ const server = Bun.serve({
 
     "/pet/:slug/remember.ics": safe(async (req) => {
       const niche = await getNiche(req.params.slug);
-      if (!niche || (!niche.born && !niche.passed)) return notFound();
-      const which = new URL(req.url).searchParams.get("event");
-      const only = which === "birthday" || which === "passing" ? which : undefined;
+      if (!niche || !niche.passed) return notFound();
+      const only = "passing" as const;
       const body = reminderIcs(niche, `${baseUrl(req)}/pet/${niche.slug}`, only);
-      const file = `${niche.slug}-${only ?? "reminders"}.ics`;
+      const file = `${niche.slug}-remembrance.ics`;
       return new Response(body, {
         headers: {
           "Content-Type": "text/calendar; charset=utf-8",
