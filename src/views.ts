@@ -353,9 +353,17 @@ export function nichePage(opts: { niche: Niche; photos: Photo[]; notes: Note[]; 
       <ul class="notes" data-notes>${notesHtml}</ul>
     </section>
   </div>
-  <dialog class="lightbox" data-lightbox-dialog aria-label="Photo">
-    <img alt="">
-    <button type="button" class="btn btn-ghost lightbox-close" data-close>Close</button>
+  <dialog class="lightbox" data-lightbox-dialog aria-label="Photo viewer">
+    <div class="lightbox-stage" data-stage>
+      <img alt="" draggable="false">
+    </div>
+    <div class="lightbox-bar">
+      <button type="button" class="btn btn-ghost btn-sm" data-prev aria-label="Previous photo">‹ Prev</button>
+      <span class="lightbox-count" data-count-label aria-live="polite"></span>
+      <button type="button" class="btn btn-ghost btn-sm" data-next aria-label="Next photo">Next ›</button>
+      <button type="button" class="btn btn-gold btn-sm" data-close>Close</button>
+    </div>
+    <p class="lightbox-hint">Swipe sideways for more photos · swipe up or down to close</p>
   </dialog>`;
 
   return layout({

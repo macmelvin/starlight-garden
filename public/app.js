@@ -121,17 +121,91 @@
     var dialog = document.querySelector("[data-lightbox-dialog]");
     if (dialog && typeof dialog.showModal === "function") {
       var dImg = dialog.querySelector("img");
-      niche.querySelectorAll("[data-lightbox]").forEach(function (a) {
-        a.addEventListener("click", function (e) {
-          e.preventDefault();
-          var img = a.querySelector("img");
-          dImg.src = a.getAttribute("href");
-          dImg.alt = img ? img.alt : "";
-          dialog.showModal();
-        });
+      var stage = dialog.querySelector("[data-stage]");
+      var countLabel = dialog.querySelector("[data-count-label]");
+      var prevBtn = dialog.querySelector("[data-prev]");
+      var nextBtn = dialog.querySelector("[data-next]");
+      var links = Array.prototype.slice.call(niche.querySelectorAll("[data-lightbox]"));
+      var current = 0;
+
+      function show(i) {
+        if (!links.length) return;
+        current = (i + links.length) % links.length;
+        var a = links[current];
+        var thumb = a.querySelector("img");
+        dImg.style.transform = "";
+        dImg.style.opacity = "1";
+        dImg.src = a.getAttribute("href");
+        dImg.alt = thumb ? thumb.alt : "";
+        countLabel.textContent = (current + 1) + " / " + links.length;
+        var many = links.length > 1;
+        prevBtn.hidden = !many;
+        nextBtn.hidden = !many;
+        // warm the next photo so swiping feels instant
+        if (many) { var pre = new Image(); pre.src = links[(current + 1) % links.length].getAttribute("href"); }
+      }
+      function open(i) {
+        show(i);
+        dialog.showModal();
+        document.body.classList.add("lightbox-open");
+      }
+      function close() {
+        if (dialog.open) dialog.close();
+      }
+      dialog.addEventListener("close", function () {
+        document.body.classList.remove("lightbox-open");
+        var a = links[current];
+        if (a) a.focus({ preventScroll: true });
       });
-      dialog.querySelector("[data-close]").addEventListener("click", function () { dialog.close(); });
-      dialog.addEventListener("click", function (e) { if (e.target === dialog) dialog.close(); });
+
+      links.forEach(function (a, i) {
+        a.addEventListener("click", function (e) { e.preventDefault(); open(i); });
+      });
+      prevBtn.addEventListener("click", function () { show(current - 1); });
+      nextBtn.addEventListener("click", function () { show(current + 1); });
+      dialog.querySelector("[data-close]").addEventListener("click", close);
+      dialog.addEventListener("click", function (e) { if (e.target === dialog || e.target === stage) close(); });
+      dialog.addEventListener("keydown", function (e) {
+        if (e.key === "ArrowLeft") show(current - 1);
+        if (e.key === "ArrowRight") show(current + 1);
+      });
+
+      // Touch: swipe sideways to change photo, swipe up/down to close and go back to scrolling.
+      var sx = 0, sy = 0, dx = 0, dy = 0, tracking = false;
+      stage.addEventListener("touchstart", function (e) {
+        if (e.touches.length !== 1) { tracking = false; return; }
+        tracking = true;
+        sx = e.touches[0].clientX; sy = e.touches[0].clientY; dx = 0; dy = 0;
+        dImg.style.transition = "none";
+      }, { passive: true });
+      stage.addEventListener("touchmove", function (e) {
+        if (!tracking) return;
+        dx = e.touches[0].clientX - sx;
+        dy = e.touches[0].clientY - sy;
+        if (Math.abs(dx) > Math.abs(dy)) {
+          dImg.style.transform = "translateX(" + dx + "px)";
+        } else {
+          dImg.style.transform = "translateY(" + dy + "px)";
+          dImg.style.opacity = String(Math.max(0.3, 1 - Math.abs(dy) / 400));
+        }
+      }, { passive: true });
+      stage.addEventListener("touchend", function () {
+        if (!tracking) return;
+        tracking = false;
+        dImg.style.transition = "";
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) {
+          show(dx < 0 ? current + 1 : current - 1);
+        } else if (Math.abs(dy) > 70) {
+          close();
+        } else if (Math.abs(dx) < 8 && Math.abs(dy) < 8) {
+          dImg.style.transform = "";
+        } else {
+          dImg.style.transform = "";
+          dImg.style.opacity = "1";
+        }
+      });
+      // a mouse wheel / trackpad scroll also closes it, so the page keeps scrolling
+      stage.addEventListener("wheel", function (e) { if (Math.abs(e.deltaY) > 30) close(); }, { passive: true });
     }
   }
 
@@ -364,6 +438,14 @@
           ph.appendChild(img);
         }
         if (history.replaceState) history.replaceState(null, "", "/sky?pet=" + encodeURIComponent(d.slug));
+        var rect = card.getBoundingClientRect();
+        if (rect.bottom > window.innerHeight || rect.top < 0) {
+          card.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "end" });
+        }
+        card.classList.remove("is-flash");
+        void card.offsetWidth;
+        card.classList.add("is-flash");
+        setTimeout(function () { card.classList.remove("is-flash"); }, 1200);
       });
     });
   }
