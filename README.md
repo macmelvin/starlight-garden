@@ -9,8 +9,11 @@ An online pet columbarium. Pet owners create a niche for a pet who has passed, u
 | `/` | The Garden Wall: search by name, filter by dogs / cats / small pets |
 | `/create` | Create a niche: details, story, up to 12 photos, choose the portrait |
 | `/pet/:slug` | A pet's niche: portrait, story, gallery, candles, flowers, notes, Send a Light |
+| `/pet/:slug/remember.ics` | Yearly calendar reminders for the birthday and passing day (`?event=birthday` or `passing`) |
 | `/sky` | The Remembrance Sky: every pet is a star, brighter with more candles |
 | `/keeper/:slug?token=…` | Private keeper page (link shown once after creating): remove notes, take the niche down |
+
+Each niche page also has a **story card** maker (9:16 story or 4:5 post image, drawn in the browser, shared with the phone's share sheet or saved), **yearly calendar reminders** (Google Calendar link or an .ics file for Apple and others), and a gentle banner on the pet's birthday and passing anniversary (Singapore time).
 
 There are no accounts. Whoever creates a niche gets a private keeper link; anyone with that link can manage the niche.
 
@@ -49,7 +52,7 @@ DATABASE_URL=postgres://… S3_ENDPOINT=… S3_BUCKET=… S3_ACCESS_KEY_ID=… S
 
 Set `UMAMI_WEBSITE_ID` to switch it on. Besides page views it records these events:
 Create niche click, Niche created, Niche create failed, Light a candle, Leave flowers,
-Leave a note, and Send a Light (with where it was tapped). Query strings are not sent,
+Leave a note, Send a Light (with where it was tapped), Story card opened / shared / saved, and Calendar reminder (with type and app). Query strings are not sent,
 visitors with Do Not Track are skipped, and private keeper pages are never tracked.
 
 ## Limits and safeguards

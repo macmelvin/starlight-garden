@@ -5,7 +5,7 @@ import { KEY_PATTERN, deletePhotos, getThumb, photoFile, putPhoto, s3, storageCo
 import {
   allow, clientIp, hashToken, isIsoDate, newKeeperToken, randomId, safeEqual, slugify, sniffImage, TYPE_BY_EXT,
 } from "./src/util";
-import { createPage, homePage, keeperPage, messagePage, nichePage, noteItem, skyPage } from "./src/views";
+import { createPage, homePage, keeperPage, messagePage, nichePage, noteItem, reminderIcs, skyPage } from "./src/views";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const MAX_PHOTOS = 12;
@@ -344,6 +344,22 @@ const server = Bun.serve({
       if (!niche) return notFound();
       const [photos, notes] = await Promise.all([getPhotos(niche.id), getNotes(niche.id)]);
       return html(nichePage({ niche, photos, notes, base: baseUrl(req) }));
+    }),
+
+    "/pet/:slug/remember.ics": safe(async (req) => {
+      const niche = await getNiche(req.params.slug);
+      if (!niche || (!niche.born && !niche.passed)) return notFound();
+      const which = new URL(req.url).searchParams.get("event");
+      const only = which === "birthday" || which === "passing" ? which : undefined;
+      const body = reminderIcs(niche, `${baseUrl(req)}/pet/${niche.slug}`, only);
+      const file = `${niche.slug}-${only ?? "reminders"}.ics`;
+      return new Response(body, {
+        headers: {
+          "Content-Type": "text/calendar; charset=utf-8",
+          "Content-Disposition": `inline; filename="${file}"`,
+          "Cache-Control": "no-store",
+        },
+      });
     }),
 
     "/keeper/:slug": safe(async (req) => {

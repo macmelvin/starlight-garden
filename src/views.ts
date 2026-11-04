@@ -18,6 +18,10 @@ const icon = {
     `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="8" r="2.2"/><circle cx="12" cy="4" r="1.8"/><circle cx="15.6" cy="8" r="1.8"/><circle cx="8.4" cy="8" r="1.8"/><circle cx="12" cy="11.6" r="1.8"/><path d="M12 13.5V21M12 17c-1.8 0-3-1-3.6-2.4M12 18.5c1.8 0 3-1 3.6-2.4"/></svg>`,
   share: (size = 20) =>
     `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 20l1.4-4A8 8 0 1 1 8.4 19z"/><path d="M12 8.5c.9 1.2 1.2 1.8 1.2 2.4a1.2 1.2 0 0 1-2.4 0c0-.6.3-1.2 1.2-2.4z"/><path d="M10.6 13.6h2.8v2.2h-2.8z"/></svg>`,
+  card: (size = 20) =>
+    `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M12 6.5l.9 2.2 2.3.7-2.3.7-.9 2.2-.9-2.2-2.3-.7 2.3-.7z"/><path d="M9 17.5h6"/></svg>`,
+  calendar: (size = 18) =>
+    `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>`,
   upload: `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>`,
 };
 
@@ -156,6 +160,147 @@ function plaqueCard(n: Niche) {
   </a>`;
 }
 
+
+// ---------- anniversaries ----------
+
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+export function todaySG(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore" }).format(new Date());
+}
+
+function ordinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function dayMonth(iso: string): string {
+  const [, m, d] = iso.split("-").map(Number);
+  return `${d} ${MONTH_NAMES[m - 1]}`;
+}
+
+/** A gentle line for the niche page when today is their birthday or anniversary. */
+export function anniversaryToday(n: Pick<Niche, "name" | "born" | "passed">, today = todaySG()): string | null {
+  const md = today.slice(5);
+  const year = Number(today.slice(0, 4));
+  if (n.born && n.born.slice(5) === md) {
+    const age = year - Number(n.born.slice(0, 4));
+    return age > 0 ? `Today would have been ${n.name}'s ${ordinal(age)} birthday.` : `Today is ${n.name}'s birthday.`;
+  }
+  if (n.passed && n.passed.slice(5) === md) {
+    const yrs = year - Number(n.passed.slice(0, 4));
+    if (yrs > 0) return `Remembering ${n.name}, ${yrs === 1 ? "one year" : `${yrs} years`} since they crossed to the stars.`;
+  }
+  return null;
+}
+
+export type ReminderKind = "birthday" | "passing";
+
+export function reminderEvents(n: Pick<Niche, "name" | "born" | "passed">) {
+  const out: { kind: ReminderKind; date: string; label: string; title: string }[] = [];
+  if (n.born) out.push({ kind: "birthday", date: n.born, label: `${n.name}'s birthday · ${dayMonth(n.born)}`, title: `${n.name}'s birthday` });
+  if (n.passed) out.push({ kind: "passing", date: n.passed, label: `Remembering ${n.name} · ${dayMonth(n.passed)}`, title: `Remembering ${n.name}` });
+  return out;
+}
+
+function reminderDetails(name: string, url: string, kind: ReminderKind): string {
+  return kind === "birthday"
+    ? `Celebrating ${name} today. Visit their niche and light a candle: ${url}`
+    : `A day to remember ${name}. Visit their niche and light a candle: ${url}`;
+}
+
+function nextDay(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+export function googleCalendarLink(name: string, url: string, ev: { kind: ReminderKind; date: string; title: string }): string {
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: ev.title,
+    dates: `${ev.date.replace(/-/g, "")}/${nextDay(ev.date).replace(/-/g, "")}`,
+    recur: "RRULE:FREQ=YEARLY",
+    details: reminderDetails(name, url, ev.kind),
+  });
+  return `https://calendar.google.com/calendar/render?${params}`;
+}
+
+function icsEscape(v: string): string {
+  return v.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+}
+
+function icsFold(line: string): string {
+  const bytes = new TextEncoder().encode(line);
+  if (bytes.length <= 74) return line;
+  const parts: string[] = [];
+  let cur = "";
+  let curLen = 0;
+  for (const ch of line) {
+    const len = new TextEncoder().encode(ch).length;
+    if (curLen + len > 73) {
+      parts.push(cur);
+      cur = "";
+      curLen = 0;
+    }
+    cur += ch;
+    curLen += len;
+  }
+  parts.push(cur);
+  return parts.join("\r\n ");
+}
+
+export function reminderIcs(n: Pick<Niche, "name" | "born" | "passed" | "slug">, url: string, only?: ReminderKind): string {
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+  const events = reminderEvents(n).filter((e) => !only || e.kind === only);
+  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Starlight Garden//Reminders//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH"];
+  for (const ev of events) {
+    const details = reminderDetails(n.name, url, ev.kind);
+    lines.push(
+      "BEGIN:VEVENT",
+      `UID:${n.slug}-${ev.kind}@starlight-garden`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART;VALUE=DATE:${ev.date.replace(/-/g, "")}`,
+      `DTEND;VALUE=DATE:${nextDay(ev.date).replace(/-/g, "")}`,
+      "RRULE:FREQ=YEARLY",
+      `SUMMARY:${icsEscape(ev.title)}`,
+      `DESCRIPTION:${icsEscape(details)}`,
+      `URL:${url}`,
+      "TRANSP:TRANSPARENT",
+      "BEGIN:VALARM",
+      "ACTION:DISPLAY",
+      `DESCRIPTION:${icsEscape(ev.title)}`,
+      "TRIGGER:PT9H",
+      "END:VALARM",
+      "END:VEVENT",
+    );
+  }
+  lines.push("END:VCALENDAR");
+  return lines.map(icsFold).join("\r\n") + "\r\n";
+}
+
+function rememberSection(n: Niche, url: string): string {
+  const events = reminderEvents(n);
+  if (!events.length) return "";
+  const rows = events
+    .map(
+      (ev) => `<li class="remember-row">
+        <span class="remember-label">${icon.calendar()} ${esc(ev.label)}</span>
+        <span class="remember-actions">
+          <a class="btn btn-outline btn-sm" href="${esc(googleCalendarLink(n.name, url, ev))}" target="_blank" rel="noopener" data-umami-event="Calendar reminder" data-umami-event-type="${ev.kind}" data-umami-event-app="google">Google Calendar</a>
+          <a class="btn btn-outline btn-sm" href="/pet/${esc(n.slug)}/remember.ics?event=${ev.kind}" data-umami-event="Calendar reminder" data-umami-event-type="${ev.kind}" data-umami-event-app="ics">Apple &amp; others</a>
+        </span>
+      </li>`,
+    )
+    .join("");
+  return `<section id="remember" class="remember" aria-labelledby="remember-h">
+      <h2 id="remember-h">Remember ${esc(n.name)} every year</h2>
+      <p class="muted">Add a gentle yearly reminder to your phone's calendar, so you never miss a day to come back and light a candle.</p>
+      <ul class="remember-list">${rows}</ul>
+    </section>`;
+}
+
 // ---------- pages ----------
 
 export function homePage(opts: {
@@ -260,6 +405,7 @@ export function nichePage(opts: { niche: Niche; photos: Photo[]; notes: Note[]; 
   const litMsg = shareMessage(n.name, url, true);
   const image = n.portrait_key ? `${base}/photo/${n.portrait_key}` : `${base}/static/og.png`;
   const flames = Math.min(n.candles, 24);
+  const annivLine = anniversaryToday(n);
 
   const gallery = photos.length
     ? `<section class="section-tight" aria-labelledby="gallery-h">
@@ -286,7 +432,12 @@ export function nichePage(opts: { niche: Niche; photos: Photo[]; notes: Note[]; 
        data-niche="${esc(n.slug)}"
        data-name="${esc(n.name)}"
        data-share-default="${esc(msg)}"
-       data-share-lit="${esc(litMsg)}">
+       data-share-lit="${esc(litMsg)}"
+       data-portrait="${esc(photoUrl(n.portrait_key) ?? "")}"
+       data-dates="${esc(dates)}"
+       data-line="${esc(n.plaque_line ?? "")}"
+       data-host="${esc(base.replace(/^https?:\/\//, ""))}">
+    ${annivLine ? `<div class="anniv" role="note">${icon.candle(22)}<span>${esc(annivLine)}</span><a class="btn btn-gold btn-sm" href="#tributes">Light a candle</a></div>` : ""}
     <section class="niche-hero">
       <div class="alcove">
         ${portraitBox(n, "alcove-photo", 56)}
@@ -304,6 +455,7 @@ export function nichePage(opts: { niche: Niche; photos: Photo[]; notes: Note[]; 
           <a class="btn btn-dark" href="#tributes">Leave a tribute</a>
           <a class="btn btn-outline" href="/sky?pet=${esc(n.slug)}">See ${esc(n.name)}'s star</a>
           <a class="btn btn-wa" data-share data-umami-event="Send a Light" data-umami-event-from="niche top" href="${esc(waLink(msg))}" target="_blank" rel="noopener" aria-label="Send a Light: share ${esc(n.name)}'s niche on WhatsApp">${icon.share()} Send a Light</a>
+          <button type="button" class="btn btn-outline" data-open-card>${icon.card()} Story card</button>
         </div>
       </div>
     </section>
@@ -352,7 +504,25 @@ export function nichePage(opts: { niche: Niche; photos: Photo[]; notes: Note[]; 
 
       <ul class="notes" data-notes>${notesHtml}</ul>
     </section>
+
+    ${rememberSection(n, url)}
   </div>
+  <dialog class="cardmaker" data-card-dialog aria-labelledby="card-h">
+    <div class="cardmaker-inner">
+      <h2 id="card-h">Share ${esc(n.name)}'s story card</h2>
+      <p class="muted small">Post it to your Instagram or Facebook story, or your WhatsApp status, so friends can find ${esc(n.name)}'s niche.</p>
+      <div class="pills" role="group" aria-label="Card size">
+        <button type="button" class="pill is-on" data-card-format="story" aria-pressed="true">Story · 9:16</button>
+        <button type="button" class="pill" data-card-format="post" aria-pressed="false">Post · 4:5</button>
+      </div>
+      <div class="cardmaker-preview"><img alt="Story card for ${esc(n.name)}" data-card-img><span class="muted small" data-card-status>Painting the card…</span></div>
+      <div class="actions cardmaker-actions">
+        <button type="button" class="btn btn-wa" data-card-share hidden>${icon.share()} Share</button>
+        <a class="btn btn-dark" data-card-download download="${esc(n.slug)}-starlight-garden.png" href="#">Save image</a>
+        <button type="button" class="btn btn-outline" data-card-close>Close</button>
+      </div>
+    </div>
+  </dialog>
   <dialog class="lightbox" data-lightbox-dialog aria-label="Photo viewer">
     <div class="lightbox-stage" data-stage>
       <img alt="" draggable="false">
@@ -453,6 +623,7 @@ export function createPage(base: string) {
       <div class="actions">
         <a class="btn btn-dark" data-done-visit href="/">Visit their niche</a>
         <a class="btn btn-wa" data-done-share data-umami-event="Send a Light" data-umami-event-from="niche created" href="#" target="_blank" rel="noopener">${icon.share()} Send a Light</a>
+        <a class="btn btn-outline" data-done-card href="/">${icon.card()} Make a story card</a>
       </div>
     </div>
   </div>`;

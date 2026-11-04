@@ -388,6 +388,8 @@
           done.querySelector("[data-done-visit]").setAttribute("href", "/pet/" + res.slug);
           done.querySelector("[data-done-visit]").textContent = "Visit " + name + "'s niche";
           done.querySelector("[data-done-share]").setAttribute("href", res.shareUrl);
+          var cardLink = done.querySelector("[data-done-card]");
+          if (cardLink) cardLink.setAttribute("href", "/pet/" + res.slug + "#story-card");
           store.set("sg:keeper:" + res.slug, res.keeperUrl);
           track("Niche created", { kind: form.elements.kind.value, photos: files.length });
           done.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -477,4 +479,242 @@
       });
     }
   }
+})();
+
+// ---------------- story cards ----------------
+(function () {
+  "use strict";
+  var niche = document.querySelector("[data-niche]");
+  var dialog = document.querySelector("[data-card-dialog]");
+  if (!niche || !dialog || typeof dialog.showModal !== "function") return;
+
+  var d = niche.dataset;
+  var name = d.name;
+  var img = dialog.querySelector("[data-card-img]");
+  var statusEl = dialog.querySelector("[data-card-status]");
+  var shareBtn = dialog.querySelector("[data-card-share]");
+  var download = dialog.querySelector("[data-card-download]");
+  var formatBtns = dialog.querySelectorAll("[data-card-format]");
+  var format = "story";
+  var currentFile = null;
+  var currentUrl = null;
+  var portrait = null; // loaded HTMLImageElement or false
+
+  function track(n, data) { try { if (window.umami) window.umami.track(n, data); } catch (e) {} }
+
+  function loadPortrait() {
+    if (portrait !== null) return Promise.resolve(portrait);
+    if (!d.portrait) { portrait = false; return Promise.resolve(false); }
+    return new Promise(function (resolve) {
+      var im = new Image();
+      im.onload = function () { portrait = im; resolve(im); };
+      im.onerror = function () {
+        // e.g. HEIC that this browser can't show: try the thumbnail instead
+        var t = new Image();
+        t.onload = function () { portrait = t; resolve(t); };
+        t.onerror = function () { portrait = false; resolve(false); };
+        t.src = d.portrait.replace("/photo/", "/thumb/");
+      };
+      im.src = d.portrait;
+    });
+  }
+
+  function fontsReady() {
+    if (!document.fonts || !document.fonts.load) return Promise.resolve();
+    var loading = Promise.all([
+      document.fonts.load("80px Marcellus"),
+      document.fonts.load("600 40px 'Source Sans 3'"),
+      document.fonts.load("400 40px 'Source Sans 3'"),
+    ]).catch(function () {});
+    // never keep someone waiting on a slow connection: fall back to system fonts
+    var timeout = new Promise(function (resolve) { setTimeout(resolve, 2500); });
+    return Promise.race([loading, timeout]);
+  }
+
+  // small seeded random so each pet's sky is the same every time
+  function rng(seed) {
+    var h = 2166136261;
+    for (var i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return function () { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; return ((h >>> 0) % 10000) / 10000; };
+  }
+
+  function wrap(ctx, text, maxWidth, maxLines) {
+    var words = text.split(/\s+/), lines = [], line = "";
+    for (var i = 0; i < words.length; i++) {
+      var test = line ? line + " " + words[i] : words[i];
+      if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = words[i]; }
+      else line = test;
+    }
+    if (line) lines.push(line);
+    if (lines.length > maxLines) {
+      lines = lines.slice(0, maxLines);
+      var last = lines[maxLines - 1];
+      while (ctx.measureText(last + "…").width > maxWidth && last.length) last = last.slice(0, -1);
+      lines[maxLines - 1] = last.replace(/\s+\S*$/, "") + "…";
+    }
+    return lines;
+  }
+
+  function fitFont(ctx, text, family, start, min, maxWidth) {
+    var size = start;
+    ctx.font = size + "px " + family;
+    while (size > min && ctx.measureText(text).width > maxWidth) { size -= 4; ctx.font = size + "px " + family; }
+    return size;
+  }
+
+  function archPath(ctx, x, y, w, h) {
+    var r = w / 2;
+    ctx.beginPath();
+    ctx.moveTo(x, y + r);
+    ctx.arc(x + r, y + r, r, Math.PI, 0);
+    ctx.lineTo(x + w, y + h - 18);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - 18, y + h);
+    ctx.lineTo(x + 18, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - 18);
+    ctx.closePath();
+  }
+
+  function draw(fmt, photo) {
+    var W = 1080, H = fmt === "story" ? 1920 : 1350;
+    var c = document.createElement("canvas");
+    c.width = W; c.height = H;
+    var ctx = c.getContext("2d");
+    var DISPLAY = "Marcellus, Georgia, serif";
+    var BODY = "'Source Sans 3', system-ui, sans-serif";
+
+    // sky
+    var g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, "#141A2B"); g.addColorStop(0.55, "#1B2236"); g.addColorStop(1, "#2C3A4A");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    var rand = rng(d.niche);
+    for (var i = 0; i < 140; i++) {
+      var sx = rand() * W, sy = rand() * H * 0.8, sr = rand() < 0.15 ? 2.6 : rand() * 1.6 + 0.6;
+      ctx.globalAlpha = 0.35 + rand() * 0.65;
+      ctx.fillStyle = rand() < 0.2 ? "#F6E7C1" : "#FFFFFF";
+      ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // moon
+    var mx = W - 150, my = fmt === "story" ? 190 : 130;
+    var mg = ctx.createRadialGradient(mx, my, 20, mx, my, 150);
+    mg.addColorStop(0, "rgba(246,231,193,.35)"); mg.addColorStop(1, "rgba(246,231,193,0)");
+    ctx.fillStyle = mg; ctx.fillRect(mx - 160, my - 160, 320, 320);
+    ctx.fillStyle = "#F6E7C1"; ctx.beginPath(); ctx.arc(mx, my, 46, 0, Math.PI * 2); ctx.fill();
+
+    // kicker
+    var top = fmt === "story" ? 210 : 110;
+    ctx.fillStyle = "#E8B04B";
+    ctx.font = "600 34px " + BODY;
+    ctx.textAlign = "center";
+    if ("letterSpacing" in ctx) ctx.letterSpacing = "8px";
+    ctx.fillText("IN LOVING MEMORY", W / 2, top);
+    if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
+
+    // arched portrait in a stone alcove
+    var aw = fmt === "story" ? 700 : 520, ah = fmt === "story" ? 860 : 620;
+    var ax = (W - aw) / 2, ay = top + 50;
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,.45)"; ctx.shadowBlur = 40; ctx.shadowOffsetY = 16;
+    archPath(ctx, ax - 22, ay - 22, aw + 44, ah + 44);
+    ctx.fillStyle = "#E4DED2"; ctx.fill();
+    ctx.restore();
+    archPath(ctx, ax, ay, aw, ah);
+    ctx.save(); ctx.clip();
+    if (photo) {
+      var scale = Math.max(aw / photo.naturalWidth, ah / photo.naturalHeight);
+      var pw = photo.naturalWidth * scale, ph = photo.naturalHeight * scale;
+      ctx.drawImage(photo, ax + (aw - pw) / 2, ay + (ah - ph) / 2.6, pw, ph);
+    } else {
+      ctx.fillStyle = "#D9E2D6"; ctx.fillRect(ax, ay, aw, ah);
+      ctx.fillStyle = "#4E6B52"; ctx.font = "120px " + DISPLAY; ctx.fillText(name.charAt(0).toUpperCase(), W / 2, ay + ah / 2 + 40);
+    }
+    ctx.restore();
+
+    // name, dates, line
+    var y = ay + ah + (fmt === "story" ? 130 : 105);
+    ctx.fillStyle = "#F2EEE6";
+    fitFont(ctx, name, DISPLAY, fmt === "story" ? 104 : 88, 52, W - 140);
+    ctx.fillText(name, W / 2, y);
+    y += fmt === "story" ? 62 : 54;
+    if (d.dates) {
+      ctx.fillStyle = "#C9CEDA"; ctx.font = "400 38px " + BODY;
+      ctx.fillText(d.dates, W / 2, y);
+      y += fmt === "story" ? 80 : 64;
+    }
+    if (d.line && fmt === "story") {
+      ctx.fillStyle = "#E9E4DA"; ctx.font = "italic 46px " + DISPLAY;
+      var lines = wrap(ctx, "“" + d.line + "”", W - 200, 2);
+      lines.forEach(function (l) { ctx.fillText(l, W / 2, y); y += 60; });
+    }
+
+    // hills
+    var hy = H - (fmt === "story" ? 230 : 150);
+    ctx.fillStyle = "#3C5A47";
+    ctx.beginPath(); ctx.moveTo(0, hy + 40);
+    ctx.bezierCurveTo(W * 0.25, hy - 10, W * 0.55, hy + 50, W, hy + 10);
+    ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#4E6E57";
+    ctx.beginPath(); ctx.moveTo(0, hy + 90);
+    ctx.bezierCurveTo(W * 0.3, hy + 50, W * 0.7, hy + 110, W, hy + 70);
+    ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fill();
+
+    // call to action
+    var cy = fmt === "story" ? Math.max(y + 90, hy - 120) : hy - 100;
+    ctx.fillStyle = "#E8B04B"; ctx.font = "600 42px " + BODY;
+    var cta = "Light a candle for " + name;
+    var ctaSize = 42;
+    ctx.font = "600 " + ctaSize + "px " + BODY;
+    while (ctaSize > 26 && ctx.measureText("🕯 " + cta).width > W - 160) { ctaSize -= 2; ctx.font = "600 " + ctaSize + "px " + BODY; }
+    ctx.fillText("🕯 " + cta, W / 2, cy);
+    ctx.fillStyle = "#F2EEE6"; ctx.font = "400 30px " + BODY;
+    ctx.fillText((d.host || location.host) + "/pet/" + d.niche, W / 2, cy + 52);
+    return c;
+  }
+
+  function render() {
+    statusEl.hidden = false;
+    statusEl.textContent = "Painting the card…";
+    img.removeAttribute("src");
+    shareBtn.hidden = true;
+    Promise.all([loadPortrait(), fontsReady()]).then(function (res) {
+      var canvas = draw(format, res[0]);
+      canvas.toBlob(function (blob) {
+        if (!blob) { statusEl.textContent = "Sorry, this browser couldn't make the image."; return; }
+        if (currentUrl) URL.revokeObjectURL(currentUrl);
+        currentUrl = URL.createObjectURL(blob);
+        var fileName = d.niche + "-" + format + ".png";
+        currentFile = new File([blob], fileName, { type: "image/png" });
+        img.src = currentUrl;
+        statusEl.hidden = true;
+        download.href = currentUrl;
+        download.setAttribute("download", fileName);
+        shareBtn.hidden = !(navigator.canShare && navigator.canShare({ files: [currentFile] }));
+      }, "image/png");
+    });
+  }
+
+  function open() {
+    dialog.showModal();
+    render();
+    track("Story card opened");
+  }
+
+  document.querySelectorAll("[data-open-card]").forEach(function (b) { b.addEventListener("click", open); });
+  formatBtns.forEach(function (b) {
+    b.addEventListener("click", function () {
+      format = b.getAttribute("data-card-format");
+      formatBtns.forEach(function (x) { var on = x === b; x.classList.toggle("is-on", on); x.setAttribute("aria-pressed", on ? "true" : "false"); });
+      render();
+    });
+  });
+  shareBtn.addEventListener("click", function () {
+    if (!currentFile) return;
+    navigator.share({ files: [currentFile], title: "Light a candle for " + name, text: niche.getAttribute("data-share-default") })
+      .then(function () { track("Story card shared", { format: format }); })
+      .catch(function () {});
+  });
+  download.addEventListener("click", function () { track("Story card saved", { format: format }); });
+  dialog.querySelector("[data-card-close]").addEventListener("click", function () { dialog.close(); });
+  dialog.addEventListener("click", function (e) { if (e.target === dialog) dialog.close(); });
+  if (location.hash === "#story-card") open();
 })();
