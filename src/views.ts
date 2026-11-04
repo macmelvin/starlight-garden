@@ -22,6 +22,7 @@ const icon = {
     `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M12 6.5l.9 2.2 2.3.7-2.3.7-.9 2.2-.9-2.2-2.3-.7 2.3-.7z"/><path d="M9 17.5h6"/></svg>`,
   calendar: (size = 18) =>
     `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>`,
+  play: `<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>`,
   upload: `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>`,
 };
 
@@ -39,6 +40,12 @@ export function plural(n: number, one: string, many: string): string {
 
 export function photoUrl(key: string | null): string | null {
   return key ? `/photo/${key}` : null;
+}
+
+function clock(seconds: number | null): string {
+  if (!seconds) return "";
+  const s = Math.round(seconds);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
 export function thumbUrl(key: string | null): string | null {
@@ -401,11 +408,15 @@ export function nichePage(opts: { niche: Niche; photos: Photo[]; notes: Note[]; 
         <h2 id="gallery-h">Moments with ${esc(n.name)}</h2>
         <div class="gallery">
           ${photos
-            .map(
-              (p, i) =>
-                `<a class="gallery-item" href="/photo/${esc(p.key)}" data-lightbox>
-                  <img src="/thumb/${esc(p.key)}" alt="Photo ${i + 1} of ${esc(n.name)}" loading="lazy" decoding="async">
-                </a>`,
+            .map((p, i) =>
+              p.media === "video"
+                ? `<a class="gallery-item is-video" href="/photo/${esc(p.key)}" data-lightbox data-video data-poster="/photo/${esc(p.poster_key ?? "")}">
+                    <img src="/thumb/${esc(p.poster_key ?? "")}" alt="Video ${i + 1} of ${esc(n.name)}" loading="lazy" decoding="async">
+                    <span class="play-badge">${icon.play}${p.duration ? `<span>${clock(p.duration)}</span>` : ""}</span>
+                  </a>`
+                : `<a class="gallery-item" href="/photo/${esc(p.key)}" data-lightbox>
+                    <img src="/thumb/${esc(p.key)}" alt="Photo ${i + 1} of ${esc(n.name)}" loading="lazy" decoding="async">
+                  </a>`,
             )
             .join("")}
         </div>
@@ -515,6 +526,7 @@ export function nichePage(opts: { niche: Niche; photos: Photo[]; notes: Note[]; 
   <dialog class="lightbox" data-lightbox-dialog aria-label="Photo viewer">
     <div class="lightbox-stage" data-stage>
       <img alt="" draggable="false">
+      <video controls playsinline preload="metadata" hidden></video>
     </div>
     <div class="lightbox-bar">
       <button type="button" class="btn btn-ghost btn-sm" data-prev aria-label="Previous photo">‹ Prev</button>
@@ -568,15 +580,15 @@ export function createPage(base: string) {
         </fieldset>
 
         <fieldset>
-          <legend>Their photos</legend>
+          <legend>Their photos &amp; videos</legend>
           <label class="dropzone" for="photos" data-dropzone>
             ${icon.upload}
-            <span class="dz-title">Drop photos here or choose from your device</span>
-            <span class="dz-sub">JPG, PNG, WEBP or HEIC · up to 12 photos</span>
-            <input id="photos" name="photos" type="file" accept="image/*" multiple class="visually-hidden">
+            <span class="dz-title">Drop photos or videos here, or choose from your device</span>
+            <span class="dz-sub">Up to 12 in total · videos up to 60 seconds (3 at most)</span>
+            <input id="photos" name="photos" type="file" accept="image/*,video/*" multiple class="visually-hidden">
           </label>
           <div class="thumbs" data-thumbs></div>
-          <p class="muted small" data-thumbs-hint hidden>The photo with the gold border becomes their portrait on the Garden Wall. Tap another photo to choose it instead, or remove one with ×.</p>
+          <p class="muted small" data-thumbs-hint hidden>The photo with the gold border becomes their portrait on the Garden Wall. Tap another photo to choose it instead, or remove one with ×. Videos can't be the portrait.</p>
         </fieldset>
 
         <p class="form-status" role="status" aria-live="polite" data-create-status></p>
@@ -683,8 +695,28 @@ export function skyPage(opts: { niches: Niche[]; selected?: string; base: string
   });
 }
 
-export function keeperPage(opts: { niche: Niche; notes: Note[]; token: string; base: string }) {
-  const { niche: n, notes, token, base } = opts;
+export function keeperPage(opts: { niche: Niche; notes: Note[]; photos: Photo[]; token: string; base: string }) {
+  const { niche: n, notes, photos, token, base } = opts;
+  const today = new Date().toISOString().slice(0, 10);
+  const kinds = KINDS.map((k) => `<option${k === n.kind ? " selected" : ""}>${k}</option>`).join("");
+  const photoTiles = photos
+    .map((p, i) => {
+      const isPortrait = p.key === n.portrait_key;
+      const isVideo = p.media === "video";
+      return `<li class="kp-tile${isPortrait ? " is-portrait" : ""}">
+        <img src="/thumb/${esc(isVideo ? p.poster_key ?? "" : p.key)}" alt="${isVideo ? "Video" : "Photo"} ${i + 1} of ${esc(n.name)}" loading="lazy" decoding="async">
+        ${isPortrait ? `<span class="thumb-badge">Portrait</span>` : ""}
+        ${isVideo ? `<span class="play-badge">${icon.play}${p.duration ? `<span>${clock(p.duration)}</span>` : ""}</span>` : ""}
+        <div class="kp-actions">
+          <button type="button" class="btn btn-outline btn-sm" data-photo-move="earlier" data-photo-id="${p.id}" aria-label="Move photo ${i + 1} earlier"${i === 0 ? " disabled" : ""}>‹</button>
+          <button type="button" class="btn btn-outline btn-sm" data-photo-move="later" data-photo-id="${p.id}" aria-label="Move photo ${i + 1} later"${i === photos.length - 1 ? " disabled" : ""}>›</button>
+          ${isPortrait || isVideo ? "" : `<button type="button" class="btn btn-outline btn-sm" data-photo-portrait="${p.id}">Make portrait</button>`}
+          <button type="button" class="btn btn-danger btn-sm" data-photo-remove="${p.id}"${!isVideo && photos.filter((x) => x.media === "image").length === 1 ? " disabled" : ""} aria-label="Remove ${isVideo ? "video" : "photo"} ${i + 1}">Remove</button>
+        </div>
+      </li>`;
+    })
+    .join("");
+  const room = 12 - photos.length;
   const url = `${base}/pet/${n.slug}`;
   const rows = notes.length
     ? notes
@@ -714,6 +746,41 @@ export function keeperPage(opts: { niche: Niche; notes: Note[]; token: string; b
         </div>
       </div>
     </div>
+    <section class="section-tight card" aria-labelledby="kp-photos-h">
+      <h2 id="kp-photos-h">Photos &amp; videos</h2>
+      <p class="muted">The photo marked Portrait is shown on the Garden Wall and at the top of the niche. Use ‹ and › to change the order of the album. Videos can be up to 60 seconds (3 at most).</p>
+      <ul class="kp-grid">${photoTiles}</ul>
+      ${
+        room > 0
+          ? `<div class="kp-add">
+              <label class="btn btn-sage" for="kp-photos">Add photos or videos</label>
+              <input id="kp-photos" type="file" accept="image/*,video/*" multiple class="visually-hidden" data-photo-add>
+              <span class="muted small">You can add ${room} more.</span>
+            </div>`
+          : `<p class="muted small">This niche holds the most it can (12). Remove one to add another.</p>`
+      }
+      <p class="form-status" role="status" aria-live="polite" data-photo-status></p>
+    </section>
+
+    <section class="section-tight card" aria-labelledby="kp-details-h">
+      <h2 id="kp-details-h">Details</h2>
+      <form class="kp-details" data-details-form novalidate>
+        <div class="grid-2">
+          <div class="field"><label for="kd-name">Their name <span class="optional">(first name)</span></label><input id="kd-name" name="name" type="text" maxlength="40" required value="${esc(n.name)}"></div>
+          <div class="field"><label for="kd-kind">They were a</label><select id="kd-kind" name="kind">${kinds}</select></div>
+          <div class="field"><label for="kd-born">Born or welcomed home <span class="optional">(optional)</span></label><input id="kd-born" name="born" type="date" max="${today}" value="${esc(n.born ?? "")}"></div>
+          <div class="field"><label for="kd-passed">Passed away <span class="optional">(optional)</span></label><input id="kd-passed" name="passed" type="date" max="${today}" value="${esc(n.passed ?? "")}"></div>
+        </div>
+        <div class="field"><label for="kd-line">A line for their plaque <span class="optional">(optional)</span></label><input id="kd-line" name="plaque_line" type="text" maxlength="80" value="${esc(n.plaque_line ?? "")}"></div>
+        <div class="field"><label for="kd-story">Their story <span class="optional">(optional)</span></label><textarea id="kd-story" name="story" rows="7" maxlength="4000">${esc(n.story ?? "")}</textarea></div>
+        <div class="field"><label for="kd-keeper">Kept by <span class="optional">(optional, shown on the niche)</span></label><input id="kd-keeper" name="keeper_name" type="text" maxlength="60" value="${esc(n.keeper_name ?? "")}"></div>
+        <div class="form-actions">
+          <p class="form-status" role="status" aria-live="polite" data-details-status></p>
+          <button class="btn btn-dark" type="submit">Save changes</button>
+        </div>
+      </form>
+    </section>
+
     <section class="section-tight">
       <h2>Notes from visitors</h2>
       <ul class="notes">${rows}</ul>

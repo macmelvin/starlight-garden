@@ -23,6 +23,112 @@
     try { if (window.umami && typeof window.umami.track === "function") window.umami.track(name, data); } catch (e) {}
   }
 
+  var MAX_VIDEO_SECONDS = 60;
+  var MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+  var MAX_VIDEOS = 3;
+
+  function isVideoFile(file) {
+    return (file.type && file.type.indexOf("video/") === 0) || /\.(mp4|mov|m4v|webm|3gp)$/i.test(file.name);
+  }
+  function isImageFile(file) {
+    return (file.type && file.type.indexOf("image/") === 0) || /\.(heic|heif|jpe?g|png|webp|gif|avif)$/i.test(file.name);
+  }
+
+  // Read a video's length on the phone, before uploading anything.
+  function videoDuration(file) {
+    return new Promise(function (resolve) {
+      var v = document.createElement("video");
+      var url = URL.createObjectURL(file);
+      var done = function (d) { URL.revokeObjectURL(url); resolve(d); };
+      v.preload = "metadata";
+      v.muted = true;
+      v.onloadedmetadata = function () { done(isFinite(v.duration) ? v.duration : null); };
+      v.onerror = function () { done(null); };
+      setTimeout(function () { done(null); }, 8000);
+      v.src = url;
+    });
+  }
+
+  function clock(sec) {
+    if (!sec) return "";
+    sec = Math.round(sec);
+    return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0");
+  }
+
+  // Downscale big photos in the browser so uploads are quick on phones.
+  function shrinkImage(file) {
+    if (!window.createImageBitmap || file.size < 400 * 1024 || file.type === "image/gif") return Promise.resolve(file);
+    return createImageBitmap(file, { imageOrientation: "from-image" })
+      .then(function (bmp) {
+        var max = 2000;
+        var scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+        var c = document.createElement("canvas");
+        c.width = Math.round(bmp.width * scale);
+        c.height = Math.round(bmp.height * scale);
+        c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+        return new Promise(function (resolve) {
+          c.toBlob(function (blob) {
+            if (!blob || blob.size >= file.size) return resolve(file);
+            resolve(new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" }));
+          }, "image/jpeg", 0.86);
+        });
+      })
+      .catch(function () { return file; });
+  }
+
+  // POST a form with upload progress (videos can take a while on mobile data).
+  function uploadForm(url, fd, onProgress) {
+    return new Promise(function (resolve, reject) {
+      var xhr = new XMLHttpRequest();
+      xhr.open("POST", url);
+      xhr.upload.onprogress = function (e) { if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total); };
+      xhr.onload = function () {
+        var body = {};
+        try { body = JSON.parse(xhr.responseText); } catch (err) {}
+        if (xhr.status >= 200 && xhr.status < 300) resolve(body);
+        else reject(new Error(body.error || "Something went wrong. Please try again."));
+      };
+      xhr.onerror = function () { reject(new Error("The upload was interrupted. Please check your connection and try again.")); };
+      xhr.send(fd);
+    });
+  }
+
+  // Shared check for chosen files. Returns { ok: [{file, video, duration}], errors: [] }.
+  function vetFiles(list, existing) {
+    var room = 12 - existing.total;
+    var videos = existing.videos;
+    var picked = [], errors = [];
+    var jobs = Array.prototype.map.call(list, function (file) {
+      if (isVideoFile(file)) {
+        if (file.size > MAX_VIDEO_BYTES) { errors.push(file.name + " is too large (100 MB max). Try a shorter clip."); return Promise.resolve(); }
+        return videoDuration(file).then(function (d) {
+          if (d !== null && d > MAX_VIDEO_SECONDS + 0.5) {
+            errors.push(file.name + " is " + clock(d) + " long. Videos can be up to " + MAX_VIDEO_SECONDS + " seconds, so please trim it first.");
+            return;
+          }
+          picked.push({ file: file, video: true, duration: d });
+        });
+      }
+      if (isImageFile(file)) { picked.push({ file: file, video: false, duration: null }); return Promise.resolve(); }
+      errors.push(file.name + " isn't a photo or video.");
+      return Promise.resolve();
+    });
+    return Promise.all(jobs).then(function () {
+      var ok = [];
+      picked.forEach(function (p) {
+        if (ok.length >= room) { errors.push("You can have up to 12 photos and videos."); return; }
+        if (p.video) {
+          if (videos >= MAX_VIDEOS) { errors.push("You can add up to " + MAX_VIDEOS + " videos."); return; }
+          videos++;
+        }
+        ok.push(p);
+      });
+      // keep each message once
+      errors = errors.filter(function (m, i) { return errors.indexOf(m) === i; });
+      return { ok: ok, errors: errors };
+    });
+  }
+
   function setCount(el, n) {
     if (!el) return;
     el.setAttribute("data-n", String(n));
@@ -90,6 +196,18 @@
       });
     });
 
+    var keeperUrl = store.get("sg:keeper:" + slug);
+    if (keeperUrl && keeperUrl.indexOf(location.origin + "/keeper/") === 0) {
+      var acts = niche.querySelector(".niche-text .actions");
+      if (acts) {
+        var manage = document.createElement("a");
+        manage.className = "btn btn-outline";
+        manage.href = keeperUrl;
+        manage.textContent = "Manage this niche";
+        acts.appendChild(manage);
+      }
+    }
+
     var noteForm = niche.querySelector("[data-note-form]");
     if (noteForm) {
       var status = noteForm.querySelector("[data-note-status]");
@@ -121,6 +239,7 @@
     var dialog = document.querySelector("[data-lightbox-dialog]");
     if (dialog && typeof dialog.showModal === "function") {
       var dImg = dialog.querySelector("img");
+      var dVideo = dialog.querySelector("video");
       var stage = dialog.querySelector("[data-stage]");
       var countLabel = dialog.querySelector("[data-count-label]");
       var prevBtn = dialog.querySelector("[data-prev]");
@@ -135,14 +254,29 @@
         var thumb = a.querySelector("img");
         dImg.style.transform = "";
         dImg.style.opacity = "1";
-        dImg.src = a.getAttribute("href");
-        dImg.alt = thumb ? thumb.alt : "";
+        dVideo.pause();
+        if (a.hasAttribute("data-video")) {
+          dImg.hidden = true;
+          dImg.removeAttribute("src");
+          dVideo.hidden = false;
+          dVideo.poster = a.getAttribute("data-poster") || "";
+          dVideo.src = a.getAttribute("href");
+          dVideo.setAttribute("aria-label", thumb ? thumb.alt : "Video");
+        } else {
+          dVideo.hidden = true;
+          dVideo.removeAttribute("src");
+          dVideo.load();
+          dImg.hidden = false;
+          dImg.src = a.getAttribute("href");
+          dImg.alt = thumb ? thumb.alt : "";
+        }
         countLabel.textContent = (current + 1) + " / " + links.length;
         var many = links.length > 1;
         prevBtn.hidden = !many;
         nextBtn.hidden = !many;
         // warm the next photo so swiping feels instant
-        if (many) { var pre = new Image(); pre.src = links[(current + 1) % links.length].getAttribute("href"); }
+        var nextLink = links[(current + 1) % links.length];
+        if (many && !nextLink.hasAttribute("data-video")) { var pre = new Image(); pre.src = nextLink.getAttribute("href"); }
       }
       function open(i) {
         show(i);
@@ -154,6 +288,7 @@
       }
       dialog.addEventListener("close", function () {
         document.body.classList.remove("lightbox-open");
+        dVideo.pause();
         var a = links[current];
         if (a) a.focus({ preventScroll: true });
       });
@@ -174,6 +309,10 @@
       var sx = 0, sy = 0, dx = 0, dy = 0, tracking = false;
       stage.addEventListener("touchstart", function (e) {
         if (e.touches.length !== 1) { tracking = false; return; }
+        if (!dVideo.hidden) {
+          var vr = dVideo.getBoundingClientRect();
+          if (e.touches[0].clientY > vr.bottom - 64) { tracking = false; return; }
+        }
         tracking = true;
         sx = e.touches[0].clientX; sy = e.touches[0].clientY; dx = 0; dy = 0;
         dImg.style.transition = "none";
@@ -182,17 +321,20 @@
         if (!tracking) return;
         dx = e.touches[0].clientX - sx;
         dy = e.touches[0].clientY - sy;
+        var el = dImg.hidden ? dVideo : dImg;
         if (Math.abs(dx) > Math.abs(dy)) {
-          dImg.style.transform = "translateX(" + dx + "px)";
+          el.style.transform = "translateX(" + dx + "px)";
         } else {
-          dImg.style.transform = "translateY(" + dy + "px)";
-          dImg.style.opacity = String(Math.max(0.3, 1 - Math.abs(dy) / 400));
+          el.style.transform = "translateY(" + dy + "px)";
+          el.style.opacity = String(Math.max(0.3, 1 - Math.abs(dy) / 400));
         }
       }, { passive: true });
       stage.addEventListener("touchend", function () {
         if (!tracking) return;
         tracking = false;
         dImg.style.transition = "";
+        dVideo.style.transform = "";
+        dVideo.style.opacity = "1";
         if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) {
           show(dx < 0 ? current + 1 : current - 1);
         } else if (Math.abs(dy) > 70) {
@@ -252,7 +394,7 @@
       previewMeta.textContent = form.elements.kind.value + (y ? " · " + y : "");
       previewLine.textContent = form.elements.plaque_line.value.trim();
       var p = files[portrait];
-      if (p && p.url) {
+      if (p && p.url && !p.video) {
         previewPhoto.classList.remove("placeholder");
         previewPhoto.innerHTML = "";
         var img = document.createElement("img");
@@ -267,30 +409,53 @@
       }
     }
 
+    function firstImage() {
+      for (var i = 0; i < files.length; i++) if (!files[i].video) return i;
+      return 0;
+    }
+
     function renderThumbs() {
       thumbs.innerHTML = "";
       files.forEach(function (f, i) {
+        var isPortrait = i === portrait && !f.video;
         var wrap = document.createElement("div");
-        wrap.className = "thumb" + (i === portrait ? " is-portrait" : "");
+        wrap.className = "thumb" + (isPortrait ? " is-portrait" : "") + (f.video ? " is-video" : "");
         var pick = document.createElement("button");
         pick.type = "button";
         pick.className = "thumb-pick";
-        pick.setAttribute("aria-label", (i === portrait ? "Portrait: " : "Use as portrait: ") + f.file.name);
-        pick.setAttribute("aria-pressed", i === portrait ? "true" : "false");
-        var img = document.createElement("img");
-        img.src = f.url;
-        img.alt = "";
-        img.onerror = function () {
-          img.remove();
-          var fb = document.createElement("span");
-          fb.className = "thumb-fallback";
-          fb.textContent = f.file.name;
-          pick.appendChild(fb);
-        };
-        pick.appendChild(img);
-        pick.addEventListener("click", function () { portrait = i; renderThumbs(); updatePreview(); });
-        wrap.appendChild(pick);
-        if (i === portrait) {
+        if (f.video) {
+          pick.setAttribute("aria-label", "Video: " + f.file.name);
+          pick.disabled = true;
+          var v = document.createElement("video");
+          v.src = f.url + "#t=0.5";
+          v.muted = true;
+          v.playsInline = true;
+          v.preload = "metadata";
+          pick.appendChild(v);
+          var pb = document.createElement("span");
+          pb.className = "play-badge";
+          pb.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>';
+          if (f.duration) { var t = document.createElement("span"); t.textContent = clock(f.duration); pb.appendChild(t); }
+          wrap.appendChild(pick);
+          wrap.appendChild(pb);
+        } else {
+          pick.setAttribute("aria-label", (isPortrait ? "Portrait: " : "Use as portrait: ") + f.file.name);
+          pick.setAttribute("aria-pressed", isPortrait ? "true" : "false");
+          var img = document.createElement("img");
+          img.src = f.url;
+          img.alt = "";
+          img.onerror = function () {
+            img.remove();
+            var fb = document.createElement("span");
+            fb.className = "thumb-fallback";
+            fb.textContent = f.file.name;
+            pick.appendChild(fb);
+          };
+          pick.appendChild(img);
+          pick.addEventListener("click", function () { portrait = i; renderThumbs(); updatePreview(); });
+          wrap.appendChild(pick);
+        }
+        if (isPortrait) {
           var badge = document.createElement("span");
           badge.className = "thumb-badge";
           badge.textContent = "Portrait";
@@ -303,8 +468,9 @@
         rm.textContent = "×";
         rm.addEventListener("click", function () {
           URL.revokeObjectURL(f.url);
+          var wasPortrait = i === portrait;
           files.splice(i, 1);
-          if (portrait >= files.length) portrait = Math.max(0, files.length - 1);
+          if (wasPortrait || portrait >= files.length || (files[portrait] && files[portrait].video)) portrait = firstImage();
           else if (i < portrait) portrait--;
           renderThumbs();
           updatePreview();
@@ -316,17 +482,18 @@
     }
 
     function addFiles(list) {
-      var added = 0;
-      Array.prototype.forEach.call(list, function (file) {
-        if (files.length >= MAX) return;
-        if (file.type && file.type.indexOf("image/") !== 0 && !/\.(heic|heif)$/i.test(file.name)) return;
-        files.push({ file: file, url: URL.createObjectURL(file) });
-        added++;
+      if (!list || !list.length) return;
+      setStatus(statusEl, "Checking your files…");
+      var existing = { total: files.length, videos: files.filter(function (f) { return f.video; }).length };
+      vetFiles(list, existing).then(function (res) {
+        res.ok.forEach(function (p) {
+          files.push({ file: p.file, url: URL.createObjectURL(p.file), video: p.video, duration: p.duration });
+        });
+        if (!files[portrait] || files[portrait].video) portrait = firstImage();
+        setStatus(statusEl, res.errors.join(" "), res.errors.length > 0);
+        renderThumbs();
+        updatePreview();
       });
-      if (files.length >= MAX && added < list.length) setStatus(statusEl, "You can add up to " + MAX + " photos.", true);
-      else setStatus(statusEl, "");
-      renderThumbs();
-      updatePreview();
     }
 
     input.addEventListener("change", function () { addFiles(input.files); input.value = ""; });
@@ -339,39 +506,19 @@
     dropzone.addEventListener("drop", function (e) { if (e.dataTransfer) addFiles(e.dataTransfer.files); });
     ["input", "change"].forEach(function (t) { form.addEventListener(t, function (e) { if (e.target !== input) updatePreview(); }); });
 
-    // Downscale big photos in the browser so uploads are quick on phones.
-    function shrink(file) {
-      if (!window.createImageBitmap || file.size < 400 * 1024 || file.type === "image/gif") return Promise.resolve(file);
-      return createImageBitmap(file, { imageOrientation: "from-image" })
-        .then(function (bmp) {
-          var max = 2000;
-          var scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
-          var c = document.createElement("canvas");
-          c.width = Math.round(bmp.width * scale);
-          c.height = Math.round(bmp.height * scale);
-          c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
-          return new Promise(function (resolve) {
-            c.toBlob(function (blob) {
-              if (!blob || blob.size >= file.size) return resolve(file);
-              resolve(new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" }));
-            }, "image/jpeg", 0.86);
-          });
-        })
-        .catch(function () { return file; });
-    }
-
     form.addEventListener("submit", function (e) {
       e.preventDefault();
       var name = petName(form.elements.name.value);
       if (!name) { setStatus(statusEl, "Please add their name.", true); form.elements.name.focus(); return; }
       form.elements.name.value = name;
-      if (!files.length) { setStatus(statusEl, "Please add at least one photo.", true); dropzone.focus(); return; }
+      if (!files.some(function (f) { return !f.video; })) { setStatus(statusEl, "Please add at least one photo for their portrait.", true); dropzone.focus(); return; }
       var b = form.elements.born.value, p = form.elements.passed.value;
       if (b && p && b > p) { setStatus(statusEl, "The birth date should come before the date they passed.", true); return; }
 
+      var hasVideo = files.some(function (f) { return f.video; });
       submit.disabled = true;
       setStatus(statusEl, "Preparing photos…");
-      Promise.all(files.map(function (f) { return shrink(f.file); }))
+      Promise.all(files.map(function (f) { return f.video ? f.file : shrinkImage(f.file); }))
         .then(function (ready) {
           var fd = new FormData();
           ["name", "kind", "born", "passed", "plaque_line", "story", "keeper_name"].forEach(function (k) {
@@ -379,12 +526,9 @@
           });
           fd.append("portrait", String(portrait));
           ready.forEach(function (f) { fd.append("photos", f, f.name); });
-          setStatus(statusEl, "Placing " + name + " on the Garden Wall…");
-          return fetch("/api/niches", { method: "POST", body: fd }).then(function (r) {
-            return r.json().catch(function () { return {}; }).then(function (body) {
-              if (!r.ok) throw new Error(body.error || "Something went wrong. Please try again.");
-              return body;
-            });
+          return uploadForm("/api/niches", fd, function (frac) {
+            if (frac < 1) setStatus(statusEl, "Uploading… " + Math.round(frac * 100) + "%");
+            else setStatus(statusEl, hasVideo ? "Preparing the videos so they play on every phone. This can take a minute…" : "Placing " + name + " on the Garden Wall…");
           });
         })
         .then(function (res) {
@@ -477,6 +621,81 @@
           .catch(function (err) { alert(err.message); btn.disabled = false; });
       });
     });
+    // remember the keeper link on this device so the niche page can offer "Manage this niche"
+    store.set("sg:keeper:" + kSlug, location.href);
+
+    var photoStatus = keeper.querySelector("[data-photo-status]");
+    function photoAction(path, body, busyMsg) {
+      setStatus(photoStatus, busyMsg);
+      keeper.querySelectorAll(".kp-tile button").forEach(function (b) { b.disabled = true; });
+      body.token = token;
+      return postJSON("/api/keeper/" + encodeURIComponent(kSlug) + "/" + path, body)
+        .then(function () { location.reload(); })
+        .catch(function (err) {
+          setStatus(photoStatus, err.message, true);
+          keeper.querySelectorAll(".kp-tile button").forEach(function (b) { b.disabled = false; });
+        });
+    }
+    keeper.querySelectorAll("[data-photo-portrait]").forEach(function (b) {
+      b.addEventListener("click", function () { photoAction("photo-portrait", { photoId: Number(b.getAttribute("data-photo-portrait")) }, "Setting the portrait…"); });
+    });
+    keeper.querySelectorAll("[data-photo-move]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        photoAction("photo-move", { photoId: Number(b.getAttribute("data-photo-id")), direction: b.getAttribute("data-photo-move") }, "Moving…");
+      });
+    });
+    keeper.querySelectorAll("[data-photo-remove]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        if (!confirm("Remove this from the album? It can't be undone.")) return;
+        photoAction("photo-remove", { photoId: Number(b.getAttribute("data-photo-remove")) }, "Removing…");
+      });
+    });
+    var addInput = keeper.querySelector("[data-photo-add]");
+    if (addInput) {
+      addInput.addEventListener("change", function () {
+        var list = addInput.files;
+        if (!list || !list.length) return;
+        var tiles = keeper.querySelectorAll(".kp-tile");
+        var existing = { total: tiles.length, videos: keeper.querySelectorAll(".kp-tile .play-badge").length };
+        setStatus(photoStatus, "Checking your files…");
+        vetFiles(list, existing).then(function (res) {
+          addInput.value = "";
+          if (!res.ok.length) { setStatus(photoStatus, res.errors.join(" ") || "Nothing to add.", true); return; }
+          var hasVideo = res.ok.some(function (p) { return p.video; });
+          return Promise.all(res.ok.map(function (p) { return p.video ? p.file : shrinkImage(p.file); })).then(function (ready) {
+            var fd = new FormData();
+            fd.append("token", token);
+            ready.forEach(function (f) { fd.append("photos", f, f.name); });
+            return uploadForm("/api/keeper/" + encodeURIComponent(kSlug) + "/photos", fd, function (frac) {
+              if (frac < 1) setStatus(photoStatus, "Uploading… " + Math.round(frac * 100) + "%");
+              else setStatus(photoStatus, hasVideo ? "Preparing the videos. This can take a minute…" : "Adding to the album…");
+            });
+          }).then(function () {
+            if (res.errors.length) alert(res.errors.join("\n"));
+            location.reload();
+          });
+        }).catch(function (err) { setStatus(photoStatus, err.message, true); });
+      });
+    }
+
+    var detailsForm = keeper.querySelector("[data-details-form]");
+    if (detailsForm) {
+      var dStatus = detailsForm.querySelector("[data-details-status]");
+      detailsForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var body = { token: token };
+        ["name", "kind", "born", "passed", "plaque_line", "story", "keeper_name"].forEach(function (k) {
+          body[k] = detailsForm.elements[k].value;
+        });
+        var btn = detailsForm.querySelector("button[type=submit]");
+        btn.disabled = true;
+        setStatus(dStatus, "Saving…");
+        postJSON("/api/keeper/" + encodeURIComponent(kSlug) + "/details", body)
+          .then(function () { setStatus(dStatus, "Saved."); setTimeout(function () { location.reload(); }, 700); })
+          .catch(function (err) { setStatus(dStatus, err.message, true); btn.disabled = false; });
+      });
+    }
+
     var del = keeper.querySelector("[data-delete-niche]");
     if (del) {
       del.addEventListener("click", function () {

@@ -27,7 +27,14 @@ export type Niche = {
   created_at: Date;
 };
 
-export type Photo = { id: number; key: string; position: number };
+export type Photo = {
+  id: number;
+  key: string;
+  position: number;
+  media: "image" | "video";
+  poster_key: string | null;
+  duration: number | null;
+};
 export type Note = { id: number; author: string | null; body: string; created_at: Date };
 
 export async function migrate() {
@@ -64,6 +71,9 @@ export async function migrate() {
       body TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`;
+  await sql`ALTER TABLE photos ADD COLUMN IF NOT EXISTS media TEXT NOT NULL DEFAULT 'image'`;
+  await sql`ALTER TABLE photos ADD COLUMN IF NOT EXISTS poster_key TEXT`;
+  await sql`ALTER TABLE photos ADD COLUMN IF NOT EXISTS duration REAL`;
   await sql`CREATE INDEX IF NOT EXISTS photos_niche_idx ON photos(niche_id, position)`;
   await sql`CREATE INDEX IF NOT EXISTS notes_niche_idx ON notes(niche_id, created_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS niches_created_idx ON niches(created_at DESC)`;
@@ -114,7 +124,9 @@ export async function countNiches(): Promise<number> {
 }
 
 export async function getPhotos(nicheId: number): Promise<Photo[]> {
-  return (await sql`SELECT id, key, position FROM photos WHERE niche_id = ${nicheId} ORDER BY position, id`) as Photo[];
+  return (await sql`
+    SELECT id, key, position, media, poster_key, duration FROM photos
+    WHERE niche_id = ${nicheId} ORDER BY position, id`) as Photo[];
 }
 
 export async function getNotes(nicheId: number, limit = 100): Promise<Note[]> {

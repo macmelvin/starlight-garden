@@ -153,6 +153,7 @@ export const TYPE_BY_EXT: Record<string, string> = {
   webp: "image/webp",
   heic: "image/heic",
   avif: "image/avif",
+  mp4: "video/mp4",
 };
 
 /** "BELLA NG" -> "Bella", "mary-jane" -> "Mary-Jane". First name only, tidy capitals. */

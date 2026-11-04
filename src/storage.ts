@@ -40,9 +40,9 @@ export const s3 = new S3Client({
 });
 
 /** Keys look like niches/<slug>/<id>.<ext> */
-export const KEY_PATTERN = /^niches\/[a-z0-9-]{1,48}\/[a-z0-9]{6,24}\.(jpg|png|gif|webp|heic|avif)$/;
+export const KEY_PATTERN = /^niches\/[a-z0-9-]{1,48}\/[a-z0-9]{6,24}\.(jpg|png|gif|webp|heic|avif|mp4)$/;
 
-export async function putPhoto(key: string, data: Blob, type: string) {
+export async function putPhoto(key: string, data: Blob | Uint8Array, type: string) {
   await s3.write(key, data, { type });
 }
 

@@ -351,3 +351,27 @@ legend { font-family: var(--display); font-size: 26px; color: var(--night); marg
 .cardmaker-preview img { max-height: min(52dvh, 560px); width: auto; border-radius: 10px; box-shadow: 0 10px 30px rgba(27,34,54,.25); }
 .cardmaker-preview img:not([src]) { display: none; }
 .cardmaker-actions { justify-content: flex-end; }
+
+/* ---------- videos ---------- */
+.play-badge { position: absolute; left: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: 4px; padding: 4px 9px 4px 6px; border-radius: 999px; background: rgba(20,26,43,.78); color: #fff; font-size: 13px; font-weight: 600; pointer-events: none; }
+.gallery-item { position: relative; }
+.thumb.is-video .thumb-pick { cursor: default; }
+.thumb-pick video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lightbox-stage video { max-width: min(100%, 1100px); max-height: 100%; width: auto; height: auto; border-radius: 10px; background: #000; transition: transform .2s ease, opacity .2s ease; }
+
+/* ---------- keeper album + details ---------- */
+.keeper .card h2 { margin-top: 0; }
+.kp-grid { list-style: none; margin: 16px 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+.kp-tile { position: relative; background: var(--plate); border: 1px solid #E2DCCF; border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
+.kp-tile.is-portrait { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold); }
+.kp-tile > img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; background: var(--sage-soft); }
+.kp-tile .thumb-badge { top: 8px; bottom: auto; }
+.kp-tile .play-badge { bottom: auto; top: 8px; left: auto; right: 8px; }
+.kp-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; }
+.kp-actions .btn-sm { min-height: 40px; padding: 0 12px; }
+.kp-actions [data-photo-move] { min-width: 44px; padding: 0; font-size: 20px; }
+.kp-actions .btn[disabled] { opacity: .35; cursor: not-allowed; }
+.kp-add { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.kp-add label { cursor: pointer; }
+.kp-details { display: flex; flex-direction: column; gap: 16px; }
+.kp-details .form-actions { align-items: center; justify-content: space-between; }

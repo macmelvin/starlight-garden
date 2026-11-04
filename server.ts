@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { analyticsOrigins } from "./src/analytics";
+import { MAX_VIDEO_BYTES, MAX_VIDEOS_PER_NICHE, VideoError, processVideo, sniffVideo, videoToolsAvailable } from "./src/media";
 import { KINDS, countNiches, getNiche, getNotes, getPhotos, listNiches, listPortraits, migrate, sql } from "./src/db";
 import { KEY_PATTERN, deletePhotos, getThumb, photoFile, putPhoto, s3, storageConfigured } from "./src/storage";
 import {
@@ -82,6 +83,97 @@ async function verifyKeeper(slug: string, token: unknown) {
 
 // ---------- handlers ----------
 
+type CheckedMedia = { file: File; media: "image" | "video"; ext: string; type: string };
+type StoredMedia = { key: string; media: "image" | "video"; posterKey: string | null; duration: number | null };
+
+async function checkMedia(files: File[]): Promise<{ ok: CheckedMedia[] } | { error: string }> {
+  const ok: CheckedMedia[] = [];
+  for (const file of files) {
+    const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+    const image = sniffImage(head);
+    if (image) {
+      if (file.size > MAX_PHOTO_BYTES) return { error: "One of the photos is too large (15 MB max)." };
+      ok.push({ file, media: "image", ...image });
+      continue;
+    }
+    if (sniffVideo(head)) {
+      if (!videoToolsAvailable) return { error: "Video uploads aren't available right now. Please add photos instead." };
+      if (file.size > MAX_VIDEO_BYTES) return { error: "One of the videos is too large (100 MB max). Try a shorter clip." };
+      ok.push({ file, media: "video", ext: "mp4", type: "video/mp4" });
+      continue;
+    }
+    return { error: "One of the files isn't a supported photo or video." };
+  }
+  if (ok.filter((m) => m.media === "video").length > MAX_VIDEOS_PER_NICHE) {
+    return { error: `Please choose up to ${MAX_VIDEOS_PER_NICHE} videos.` };
+  }
+  return { ok };
+}
+
+/** Stores every item or none. Videos are converted first. */
+async function uploadMedia(slug: string, items: CheckedMedia[]): Promise<{ ok: StoredMedia[] } | { error: string; status: number }> {
+  const stored: StoredMedia[] = [];
+  const allKeys = () => stored.flatMap((m) => (m.posterKey ? [m.key, m.posterKey] : [m.key]));
+  try {
+    for (const item of items) {
+      const id = randomId(12);
+      if (item.media === "image") {
+        const key = `niches/${slug}/${id}.${item.ext}`;
+        await putPhoto(key, item.file, item.type);
+        stored.push({ key, media: "image", posterKey: null, duration: null });
+      } else {
+        const v = await processVideo(item.file);
+        const key = `niches/${slug}/${id}.mp4`;
+        const posterKey = `niches/${slug}/${id}.jpg`;
+        await putPhoto(key, v.video, "video/mp4");
+        stored.push({ key, media: "video", posterKey: null, duration: v.duration });
+        await putPhoto(posterKey, v.poster, "image/jpeg");
+        stored[stored.length - 1].posterKey = posterKey;
+      }
+    }
+    return { ok: stored };
+  } catch (err) {
+    await deletePhotos(allKeys());
+    if (err instanceof VideoError) return { error: err.message, status: 400 };
+    console.error("upload failed", err);
+    return { error: "We couldn't save the photos. Please try again.", status: 502 };
+  }
+}
+
+type Details = {
+  name: string;
+  kind: string;
+  born: string | null;
+  passed: string | null;
+  plaqueLine: string | null;
+  story: string | null;
+  keeperName: string | null;
+};
+
+/** Reads and checks the niche's written details from any source of fields. */
+function readDetails(get: (name: string, max: number) => string): Details | { error: string } {
+  const name = petFirstName(get("name", 60));
+  const kindRaw = get("kind", 30);
+  const kind = (KINDS as readonly string[]).includes(kindRaw) ? kindRaw : "Other friend";
+  const born = get("born", 10) || null;
+  const passed = get("passed", 10) || null;
+  if (!name) return { error: "Please add their name." };
+  const today = new Date().toISOString().slice(0, 10);
+  for (const [label, d] of [["birth", born], ["passing", passed]] as const) {
+    if (d && (!isIsoDate(d) || d > today)) return { error: `Please check the ${label} date.` };
+  }
+  if (born && passed && born > passed) return { error: "The birth date should come before the date they passed." };
+  return {
+    name,
+    kind,
+    born,
+    passed,
+    plaqueLine: get("plaque_line", 80) || null,
+    story: get("story", 4000) || null,
+    keeperName: get("keeper_name", 60) || null,
+  };
+}
+
 async function createNiche(req: Request) {
   if (!sameOrigin(req)) return json({ error: "Please create the niche from this site." }, 403);
   if (!storageConfigured) return json({ error: "Photo storage isn't set up yet. Please try again later." }, 503);
@@ -97,51 +189,27 @@ async function createNiche(req: Request) {
     return json({ error: "We couldn't read the form. Please try again." }, 400);
   }
 
-  const name = petFirstName(text(form, "name", 60));
-  const kindRaw = text(form, "kind", 30);
-  const kind = (KINDS as readonly string[]).includes(kindRaw) ? kindRaw : "Other friend";
-  const born = text(form, "born", 10) || null;
-  const passed = text(form, "passed", 10) || null;
-  const plaqueLine = text(form, "plaque_line", 80) || null;
-  const story = text(form, "story", 4000) || null;
-  const keeperName = text(form, "keeper_name", 60) || null;
+  const details = readDetails((n, max) => text(form, n, max));
+  if ("error" in details) return json({ error: details.error }, 400);
+  const { name, kind, born, passed, plaqueLine, story, keeperName } = details;
   const portraitIndex = Math.max(0, Number(text(form, "portrait", 3)) || 0);
-
-  if (!name) return json({ error: "Please add their name." }, 400);
-  const today = new Date().toISOString().slice(0, 10);
-  for (const [label, d] of [["birth", born], ["passing", passed]] as const) {
-    if (d && (!isIsoDate(d) || d > today)) return json({ error: `Please check the ${label} date.` }, 400);
-  }
-  if (born && passed && born > passed) return json({ error: "The birth date should come before the date they passed." }, 400);
 
   const files = form.getAll("photos").filter((f): f is File => f instanceof File && f.size > 0);
   if (!files.length) return json({ error: "Please add at least one photo." }, 400);
-  if (files.length > MAX_PHOTOS) return json({ error: `Please choose up to ${MAX_PHOTOS} photos.` }, 400);
+  if (files.length > MAX_PHOTOS) return json({ error: `Please choose up to ${MAX_PHOTOS} photos and videos.` }, 400);
 
-  const checked: { file: File; ext: string; type: string }[] = [];
-  for (const file of files) {
-    if (file.size > MAX_PHOTO_BYTES) return json({ error: "One of the photos is too large (15 MB max)." }, 400);
-    const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
-    const kindOf = sniffImage(head);
-    if (!kindOf) return json({ error: "One of the files isn't a supported photo (JPG, PNG, WEBP, GIF or HEIC)." }, 400);
-    checked.push({ file, ...kindOf });
-  }
+  const checked = await checkMedia(files);
+  if ("error" in checked) return json({ error: checked.error }, 400);
+  if (!checked.ok.some((m) => m.media === "image")) return json({ error: "Please add at least one photo for their portrait." }, 400);
 
   const slug = slugify(name);
-  const uploaded: string[] = [];
-  try {
-    for (const c of checked) {
-      const key = `niches/${slug}/${randomId(12)}.${c.ext}`;
-      await putPhoto(key, c.file, c.type);
-      uploaded.push(key);
-    }
-  } catch (err) {
-    console.error("upload failed", err);
-    await deletePhotos(uploaded);
-    return json({ error: "We couldn't save the photos. Please try again." }, 502);
-  }
+  const result = await uploadMedia(slug, checked.ok);
+  if ("error" in result) return json({ error: result.error }, result.status);
+  const uploaded = result.ok;
+  const allKeys = uploaded.flatMap((m) => (m.posterKey ? [m.key, m.posterKey] : [m.key]));
 
-  const portraitKey = uploaded[Math.min(portraitIndex, uploaded.length - 1)];
+  const chosen = uploaded[Math.min(portraitIndex, uploaded.length - 1)];
+  const portraitKey = chosen.media === "image" ? chosen.key : uploaded.find((m) => m.media === "image")!.key;
   const token = newKeeperToken();
   try {
     await sql.begin(async (tx) => {
@@ -150,14 +218,16 @@ async function createNiche(req: Request) {
         VALUES (${slug}, ${name}, ${kind}, ${born}::date, ${passed}::date, ${plaqueLine}, ${story}, ${keeperName}, ${hashToken(token)}, ${portraitKey})
         RETURNING id`;
       // portrait first, then the rest in the order chosen
-      const ordered = [portraitKey, ...uploaded.filter((k) => k !== portraitKey)];
+      const ordered = [uploaded.find((m) => m.key === portraitKey)!, ...uploaded.filter((m) => m.key !== portraitKey)];
       for (let i = 0; i < ordered.length; i++) {
-        await tx`INSERT INTO photos (niche_id, key, position) VALUES (${row.id}, ${ordered[i]}, ${i})`;
+        const m = ordered[i];
+        await tx`INSERT INTO photos (niche_id, key, position, media, poster_key, duration)
+                 VALUES (${row.id}, ${m.key}, ${i}, ${m.media}, ${m.posterKey}, ${m.duration})`;
       }
     });
   } catch (err) {
     console.error("db insert failed", err);
-    await deletePhotos(uploaded);
+    await deletePhotos(allKeys);
     return json({ error: "We couldn't create the niche. Please try again." }, 500);
   }
 
@@ -229,8 +299,126 @@ async function keeperAction(req: Request, slug: string, action: "remove-note" | 
   }
   const photos = await getPhotos(niche.id);
   await sql`DELETE FROM niches WHERE id = ${niche.id}`;
-  await deletePhotos(photos.map((p) => p.key));
+  await deletePhotos(photos.flatMap((p) => (p.poster_key ? [p.key, p.poster_key] : [p.key])));
   return json({ ok: true });
+}
+
+type KeeperCtx =
+  | { ok: true; niche: NonNullable<Awaited<ReturnType<typeof getNiche>>>; data: Record<string, unknown> }
+  | { ok: false; error: Response };
+
+async function keeperFromJson(req: Request, slug: string): Promise<KeeperCtx> {
+  if (!sameOrigin(req)) return { ok: false, error: json({ error: "Not allowed" }, 403) };
+  if (!allow(`keeper:${clientIp(req)}`, 120, 60 * 60 * 1000)) return { ok: false, error: json({ error: "Please slow down a little." }, 429) };
+  let data: Record<string, unknown>;
+  try {
+    data = await req.json();
+  } catch {
+    return { ok: false, error: json({ error: "Please try again." }, 400) };
+  }
+  const niche = await verifyKeeper(slug, data.token);
+  if (!niche) return { ok: false, error: json({ error: "This keeper link isn't valid." }, 403) };
+  return { ok: true, niche, data };
+}
+
+async function keeperDetails(req: Request, slug: string) {
+  const r = await keeperFromJson(req, slug);
+  if (!r.ok) return r.error;
+  const { niche, data } = r;
+  const details = readDetails((n, max) => (typeof data[n] === "string" ? (data[n] as string).trim().slice(0, max) : ""));
+  if ("error" in details) return json({ error: details.error }, 400);
+  await sql`
+    UPDATE niches SET
+      name = ${details.name}, kind = ${details.kind},
+      born = ${details.born}::date, passed = ${details.passed}::date,
+      plaque_line = ${details.plaqueLine}, story = ${details.story}, keeper_name = ${details.keeperName}
+    WHERE id = ${niche.id}`;
+  return json({ ok: true });
+}
+
+async function keeperPhotoAction(req: Request, slug: string, action: "portrait" | "remove" | "move") {
+  const r = await keeperFromJson(req, slug);
+  if (!r.ok) return r.error;
+  const { niche, data } = r;
+  const photos = await getPhotos(niche.id);
+  const id = Number(data.photoId);
+  const index = photos.findIndex((p) => p.id === id);
+  if (index < 0) return json({ error: "That photo wasn't found. Please refresh the page." }, 404);
+  const photo = photos[index];
+
+  if (action === "portrait") {
+    if (photo.media !== "image") return json({ error: "The portrait needs to be a photo, not a video." }, 400);
+    await sql`UPDATE niches SET portrait_key = ${photo.key} WHERE id = ${niche.id}`;
+    return json({ ok: true });
+  }
+
+  if (action === "remove") {
+    const rest = photos.filter((p) => p.id !== id);
+    if (!rest.some((p) => p.media === "image")) {
+      return json({ error: "A niche needs at least one photo. Add another photo before removing this one." }, 400);
+    }
+    await sql.begin(async (tx) => {
+      await tx`DELETE FROM photos WHERE id = ${id} AND niche_id = ${niche.id}`;
+      if (niche.portrait_key === photo.key) {
+        await tx`UPDATE niches SET portrait_key = ${rest.find((p) => p.media === "image")!.key} WHERE id = ${niche.id}`;
+      }
+      for (let i = 0; i < rest.length; i++) await tx`UPDATE photos SET position = ${i} WHERE id = ${rest[i].id}`;
+    });
+    await deletePhotos(photo.poster_key ? [photo.key, photo.poster_key] : [photo.key]);
+    return json({ ok: true });
+  }
+
+  // move one step earlier or later
+  const dir = data.direction === "earlier" ? -1 : 1;
+  const target = index + dir;
+  if (target < 0 || target >= photos.length) return json({ ok: true });
+  const order = photos.map((p) => p.id);
+  [order[index], order[target]] = [order[target], order[index]];
+  await sql.begin(async (tx) => {
+    for (let i = 0; i < order.length; i++) await tx`UPDATE photos SET position = ${i} WHERE id = ${order[i]} AND niche_id = ${niche.id}`;
+  });
+  return json({ ok: true });
+}
+
+async function keeperAddPhotos(req: Request, slug: string) {
+  if (!sameOrigin(req)) return json({ error: "Not allowed" }, 403);
+  if (!storageConfigured) return json({ error: "Photo storage isn't set up yet. Please try again later." }, 503);
+  if (!allow(`keeper-upload:${clientIp(req)}`, 30, 60 * 60 * 1000)) return json({ error: "Please slow down a little." }, 429);
+  let form: FormData;
+  try {
+    form = await req.formData();
+  } catch {
+    return json({ error: "We couldn't read the photos. Please try again." }, 400);
+  }
+  const niche = await verifyKeeper(slug, form.get("token"));
+  if (!niche) return json({ error: "This keeper link isn't valid." }, 403);
+  const files = form.getAll("photos").filter((f): f is File => f instanceof File && f.size > 0);
+  if (!files.length) return json({ error: "Please choose at least one photo or video." }, 400);
+  const existing = await getPhotos(niche.id);
+  const room = MAX_PHOTOS - existing.length;
+  if (room <= 0) return json({ error: `This niche already has ${MAX_PHOTOS} photos and videos. Remove one to add another.` }, 400);
+  if (files.length > room) return json({ error: `You can add ${room} more (${MAX_PHOTOS} photos and videos at most).` }, 400);
+  const checked = await checkMedia(files);
+  if ("error" in checked) return json({ error: checked.error }, 400);
+  const videosAfter = existing.filter((p) => p.media === "video").length + checked.ok.filter((m) => m.media === "video").length;
+  if (videosAfter > MAX_VIDEOS_PER_NICHE) return json({ error: `A niche can hold up to ${MAX_VIDEOS_PER_NICHE} videos.` }, 400);
+  const result = await uploadMedia(niche.slug, checked.ok);
+  if ("error" in result) return json({ error: result.error }, result.status);
+  const items = result.ok;
+  try {
+    await sql.begin(async (tx) => {
+      for (let i = 0; i < items.length; i++) {
+        const m = items[i];
+        await tx`INSERT INTO photos (niche_id, key, position, media, poster_key, duration)
+                 VALUES (${niche.id}, ${m.key}, ${existing.length + i}, ${m.media}, ${m.posterKey}, ${m.duration})`;
+      }
+    });
+  } catch (err) {
+    console.error("db insert failed", err);
+    await deletePhotos(items.flatMap((m) => (m.posterKey ? [m.key, m.posterKey] : [m.key])));
+    return json({ error: "We couldn't add them. Please try again." }, 500);
+  }
+  return json({ ok: true, added: items.length });
 }
 
 async function servePhoto(req: Request) {
@@ -239,16 +427,35 @@ async function servePhoto(req: Request) {
   const file = photoFile(key);
   try {
     const ext = key.split(".").pop()!;
-    // stream rather than redirect so link previews (WhatsApp) can read it
+    const type = TYPE_BY_EXT[ext] ?? "application/octet-stream";
     const stat = await file.stat();
-    return new Response(file.stream(), {
-      headers: {
-        "Content-Type": TYPE_BY_EXT[ext] ?? "application/octet-stream",
-        "Content-Length": String(stat.size),
-        "Cache-Control": "public, max-age=31536000, immutable",
-        "X-Content-Type-Options": "nosniff",
-      },
-    });
+    const size = stat.size;
+    const base = {
+      "Content-Type": type,
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "Accept-Ranges": "bytes",
+      "X-Content-Type-Options": "nosniff",
+    };
+    // Videos need byte ranges (iPhones won't play them otherwise)
+    const range = req.headers.get("range");
+    const m = range && /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+    if (m && (m[1] || m[2])) {
+      let start = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]));
+      let end = m[1] && m[2] ? Number(m[2]) : size - 1;
+      end = Math.min(end, size - 1);
+      if (start > end || start >= size) {
+        return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
+      }
+      // A buffered body (not a stream) so the exact Content-Length is sent; converted
+      // videos are small, and iPhones are strict about partial responses.
+      const chunk = await file.slice(start, end + 1).arrayBuffer();
+      return new Response(chunk, {
+        status: 206,
+        headers: { ...base, "Content-Range": `bytes ${start}-${end}/${size}`, "Content-Length": String(end - start + 1) },
+      });
+    }
+    // stream rather than redirect so link previews (WhatsApp) can read it
+    return new Response(file.stream(), { headers: { ...base, "Content-Length": String(size) } });
   } catch {
     return new Response("Not found", { status: 404 });
   }
@@ -315,7 +522,7 @@ if (storageConfigured) {
 
 const server = Bun.serve({
   port: PORT,
-  maxRequestBodySize: MAX_PHOTOS * MAX_PHOTO_BYTES + 1024 * 1024,
+  maxRequestBodySize: 9 * MAX_PHOTO_BYTES + MAX_VIDEOS_PER_NICHE * MAX_VIDEO_BYTES + 4 * 1024 * 1024,
   routes: {
     "/healthz": () => new Response("ok"),
     "/static/*": safe(serveStatic),
@@ -368,8 +575,8 @@ const server = Bun.serve({
         const p = messagePage("This keeper link isn't valid", "Please check you copied the whole private link you were given when the niche was created.", 403);
         return html(p.html, p.status, { "Referrer-Policy": "no-referrer" });
       }
-      const notes = await getNotes(niche.id, 500);
-      return html(keeperPage({ niche, notes, token: token!, base: baseUrl(req) }), 200, {
+      const [notes, photos] = await Promise.all([getNotes(niche.id, 500), getPhotos(niche.id)]);
+      return html(keeperPage({ niche, notes, photos, token: token!, base: baseUrl(req) }), 200, {
         "Referrer-Policy": "no-referrer",
         "Cache-Control": "no-store",
       });
@@ -381,6 +588,11 @@ const server = Bun.serve({
     "/api/pet/:slug/notes": { POST: safe((req) => addNote(req, req.params.slug)) },
     "/api/keeper/:slug/remove-note": { POST: safe((req) => keeperAction(req, req.params.slug, "remove-note")) },
     "/api/keeper/:slug/delete": { POST: safe((req) => keeperAction(req, req.params.slug, "delete")) },
+    "/api/keeper/:slug/details": { POST: safe((req) => keeperDetails(req, req.params.slug)) },
+    "/api/keeper/:slug/photos": { POST: safe((req) => keeperAddPhotos(req, req.params.slug)) },
+    "/api/keeper/:slug/photo-portrait": { POST: safe((req) => keeperPhotoAction(req, req.params.slug, "portrait")) },
+    "/api/keeper/:slug/photo-remove": { POST: safe((req) => keeperPhotoAction(req, req.params.slug, "remove")) },
+    "/api/keeper/:slug/photo-move": { POST: safe((req) => keeperPhotoAction(req, req.params.slug, "move")) },
   },
   fetch() {
     return notFound();

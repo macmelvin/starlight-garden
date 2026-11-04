@@ -11,7 +11,7 @@ An online pet columbarium. Pet owners create a niche for a pet who has passed, u
 | `/pet/:slug` | A pet's niche: portrait, story, gallery, candles, flowers, notes, Send a Light |
 | `/pet/:slug/remember.ics` | Yearly calendar reminder for the day the pet passed |
 | `/sky` | The Remembrance Sky: every pet is a star, brighter with more candles |
-| `/keeper/:slug?token=…` | Private keeper page (link shown once after creating): remove notes, take the niche down |
+| `/keeper/:slug?token=…` | Private keeper page (link shown once after creating): edit details, add / remove / reorder photos and videos, choose the portrait, remove notes, take the niche down |
 
 Each niche page also has a **story card** maker (9:16 story or 4:5 post image, drawn in the browser, shared with the phone's share sheet or saved), **a yearly remembrance reminder** on the day the pet passed (Google Calendar link or an .ics file for Apple and others), and a gentle banner on that anniversary (Singapore time). Birthdays are shown on the plaque but don't get reminders.
 
@@ -55,9 +55,16 @@ Create niche click, Niche created, Niche create failed, Light a candle, Leave fl
 Leave a note, Send a Light (with where it was tapped), Story card opened / shared / saved, and Calendar reminder (with type and app). Query strings are not sent,
 visitors with Do Not Track are skipped, and private keeper pages are never tracked.
 
+## Videos
+
+Videos (up to 60 seconds, 100 MB, 3 per niche) are checked on the phone before upload, then converted on the
+server with ffmpeg to a 720p H.264 MP4 with a poster frame, so iPhone HEVC clips also play on Android and
+desktop. Railway installs ffmpeg through the `RAILPACK_DEPLOY_APT_PACKAGES=ffmpeg` service variable. Videos are
+streamed with byte ranges. The portrait is always a photo.
+
 ## Limits and safeguards
 
-- Up to 12 photos per niche, 15 MB each; files are checked by content, not just extension
+- Up to 12 photos and videos per niche (photos 15 MB each; videos 60 s / 100 MB, 3 at most); files are checked by content, not just extension
 - One candle and one bunch of flowers per visitor per niche (per 12 hours), plus per-IP rate limits on creating niches and notes
 - All visitor text is HTML-escaped; strict Content-Security-Policy
 - Rate limits are kept in memory, so they reset on redeploy and apply per instance
