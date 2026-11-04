@@ -51,6 +51,13 @@ bun install
 DATABASE_URL=postgres://… S3_ENDPOINT=… S3_BUCKET=… S3_ACCESS_KEY_ID=… S3_SECRET_ACCESS_KEY=… bun run dev
 ```
 
+## Email reminder sign-ups
+
+People can ask for email reminders when they create a niche or from a niche page (the "Remember every
+year" section). Each sign-up stores the email, the pet, the exact consent wording and time, and its own
+unsubscribe link (`/unsubscribe?t=…`). Emails are not sent yet: the owner downloads the list as CSV from
+`/admin` for an email service. `/privacy` explains what is kept.
+
 ## Analytics (Umami)
 
 Set `UMAMI_WEBSITE_ID` to switch it on. Besides page views it records these events:

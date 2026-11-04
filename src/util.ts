@@ -164,3 +164,10 @@ export function petFirstName(raw: string): string {
     .replace(/(^|[^\p{L}\p{N}])(\p{L})/gu, (_m, pre: string, ch: string) => pre + ch.toLocaleUpperCase("en"))
     .slice(0, 40);
 }
+
+export function cleanEmail(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const e = raw.trim().toLowerCase();
+  if (e.length > 254 || !/^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[a-z]{2,}$/.test(e)) return null;
+  return e;
+}

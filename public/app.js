@@ -196,6 +196,29 @@
       });
     });
 
+    var remindForm = niche.querySelector("[data-remind-form]");
+    if (remindForm) {
+      var rStatus = remindForm.querySelector("[data-remind-status]");
+      remindForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var email = remindForm.elements.email.value.trim();
+        if (!remindForm.elements.consent.checked) { setStatus(rStatus, "Please tick the box to agree to the reminder emails.", true); return; }
+        if (!email) { setStatus(rStatus, "Please add your email.", true); return; }
+        var btn = remindForm.querySelector("button[type=submit]");
+        btn.disabled = true;
+        setStatus(rStatus, "Saving…");
+        postJSON("/api/pet/" + encodeURIComponent(slug) + "/remind", { email: email, consent: true })
+          .then(function () {
+            setStatus(rStatus, "Thank you. We'll email you before " + petName + "'s remembrance day.");
+            remindForm.elements.email.value = "";
+            remindForm.elements.consent.checked = false;
+            track("Email reminder signup", { from: "niche" });
+          })
+          .catch(function (err) { setStatus(rStatus, err.message, true); })
+          .finally(function () { btn.disabled = false; });
+      });
+    }
+
     var keeperUrl = store.get("sg:keeper:" + slug);
     if (keeperUrl && keeperUrl.indexOf(location.origin + "/keeper/") === 0) {
       var acts = niche.querySelector(".niche-text .actions");
@@ -496,6 +519,15 @@
       });
     }
 
+    var remindToggle = form.querySelector("[data-remind-toggle]");
+    var remindEmailBox = form.querySelector("[data-remind-email]");
+    if (remindToggle && remindEmailBox) {
+      remindToggle.addEventListener("change", function () {
+        remindEmailBox.hidden = !remindToggle.checked;
+        if (remindToggle.checked) form.elements.remind_email.focus();
+      });
+    }
+
     input.addEventListener("change", function () { addFiles(input.files); input.value = ""; });
     ["dragenter", "dragover"].forEach(function (t) {
       dropzone.addEventListener(t, function (e) { e.preventDefault(); dropzone.classList.add("is-over"); });
@@ -511,6 +543,11 @@
       var name = petName(form.elements.name.value);
       if (!name) { setStatus(statusEl, "Please add their name.", true); form.elements.name.focus(); return; }
       form.elements.name.value = name;
+      if (remindToggle && remindToggle.checked && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.elements.remind_email.value.trim())) {
+        setStatus(statusEl, "Please check your email address for the reminders.", true);
+        form.elements.remind_email.focus();
+        return;
+      }
       if (!files.some(function (f) { return !f.video; })) { setStatus(statusEl, "Please add at least one photo for their portrait.", true); dropzone.focus(); return; }
       var b = form.elements.born.value, p = form.elements.passed.value;
       if (b && p && b > p) { setStatus(statusEl, "The birth date should come before the date they passed.", true); return; }
@@ -525,6 +562,10 @@
             fd.append(k, form.elements[k].value);
           });
           fd.append("portrait", String(portrait));
+          if (remindToggle && remindToggle.checked) {
+            fd.append("remind_me", "on");
+            fd.append("remind_email", form.elements.remind_email.value.trim());
+          }
           ready.forEach(function (f) { fd.append("photos", f, f.name); });
           return uploadForm("/api/niches", fd, function (frac) {
             if (frac < 1) setStatus(statusEl, "Uploading… " + Math.round(frac * 100) + "%");
@@ -546,6 +587,7 @@
           if (cardLink) cardLink.setAttribute("href", "/pet/" + res.slug + "#story-card");
           store.set("sg:keeper:" + res.slug, res.keeperUrl);
           track("Niche created", { kind: form.elements.kind.value, photos: files.length });
+          if (remindToggle && remindToggle.checked) track("Email reminder signup", { from: "create" });
           done.scrollIntoView({ behavior: "smooth", block: "start" });
           done.querySelector("h2").setAttribute("tabindex", "-1");
           done.querySelector("h2").focus({ preventScroll: true });

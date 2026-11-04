@@ -382,3 +382,19 @@ legend { font-family: var(--display); font-size: 26px; color: var(--night); marg
 .admin-row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; padding: 12px 16px; background: #fff; border: 1px solid #E2DCCF; border-radius: 12px; }
 .admin .keeper-box { margin-bottom: 8px; }
 .btn.is-armed { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+/* ---------- email reminders ---------- */
+.remind-form { margin-top: 22px; padding-top: 20px; border-top: 1px solid #E2DCCF; display: flex; flex-direction: column; gap: 12px; }
+.remind-form h3 { margin: 0; font-size: 18px; }
+.remind-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.remind-row .field-inline { max-width: 420px; }
+.remind-row input { width: 100%; min-height: 48px; padding: 11px 14px; border-radius: 10px; border: 1px solid #B9B09F; font: 17px var(--body); background: #FBFAF7; }
+.consent { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; line-height: 1.5; color: var(--ink-2); cursor: pointer; }
+.consent input { width: 20px; height: 20px; min-height: 0; margin-top: 2px; flex: 0 0 auto; accent-color: var(--sage); }
+.remind-create { display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 12px; background: #F1F5EF; border: 1px solid #C5DCCB; }
+.footer-link { color: var(--night-muted); }
+.footer-link:hover { color: #fff; }
+.prose { max-width: 760px; }
+.prose h2 { margin-top: 28px; font-size: 26px; }
+.prose li { margin-bottom: 8px; line-height: 1.6; }
+.prose p { line-height: 1.7; }

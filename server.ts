@@ -1,12 +1,12 @@
 import { join } from "node:path";
 import { analyticsOrigins } from "./src/analytics";
 import { MAX_VIDEO_BYTES, MAX_VIDEOS_PER_NICHE, VideoError, processVideo, sniffVideo, videoToolsAvailable } from "./src/media";
-import { KINDS, countNiches, getNiche, getNotes, getPhotos, listNiches, listPortraits, migrate, sql } from "./src/db";
+import { KINDS, addReminder, exportReminders, findReminder, reminderCounts, unsubscribeReminder, countNiches, getNiche, getNotes, getPhotos, listNiches, listPortraits, migrate, sql } from "./src/db";
 import { KEY_PATTERN, deletePhotos, getThumb, photoFile, putPhoto, s3, storageConfigured } from "./src/storage";
 import {
-  allow, clientIp, hashToken, petFirstName, isIsoDate, newKeeperToken, randomId, safeEqual, slugify, sniffImage, TYPE_BY_EXT,
+  allow, cleanEmail, clientIp, hashToken, petFirstName, isIsoDate, newKeeperToken, randomId, safeEqual, slugify, sniffImage, TYPE_BY_EXT,
 } from "./src/util";
-import { adminListPage, adminLoginPage, createPage, homePage, keeperPage, messagePage, nichePage, noteItem, reminderIcs, skyPage } from "./src/views";
+import { adminListPage, adminLoginPage, createPage, homePage, privacyPage, unsubscribePage, keeperPage, messagePage, nichePage, noteItem, reminderIcs, skyPage } from "./src/views";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const MAX_PHOTOS = 12;
@@ -216,6 +216,9 @@ async function createNiche(req: Request) {
   if ("error" in details) return json({ error: details.error }, 400);
   const { name, kind, born, passed, plaqueLine, story, keeperName } = details;
   const portraitIndex = Math.max(0, Number(text(form, "portrait", 3)) || 0);
+  const wantsReminder = text(form, "remind_me", 10) === "on" || text(form, "remind_me", 10) === "true";
+  const reminderEmail = wantsReminder ? cleanEmail(text(form, "remind_email", 254)) : null;
+  if (wantsReminder && !reminderEmail) return json({ error: "Please check your email address for the reminders." }, 400);
 
   const files = form.getAll("photos").filter((f): f is File => f instanceof File && f.size > 0);
   if (!files.length) return json({ error: "Please add at least one photo." }, 400);
@@ -234,12 +237,14 @@ async function createNiche(req: Request) {
   const chosen = uploaded[Math.min(portraitIndex, uploaded.length - 1)];
   const portraitKey = chosen.media === "image" ? chosen.key : uploaded.find((m) => m.media === "image")!.key;
   const token = newKeeperToken();
+  let nicheId = 0;
   try {
     await sql.begin(async (tx) => {
       const [row] = await tx`
         INSERT INTO niches (slug, name, kind, born, passed, plaque_line, story, keeper_name, keeper_token_hash, portrait_key)
         VALUES (${slug}, ${name}, ${kind}, ${born}::date, ${passed}::date, ${plaqueLine}, ${story}, ${keeperName}, ${hashToken(token)}, ${portraitKey})
         RETURNING id`;
+      nicheId = row.id;
       // portrait first, then the rest in the order chosen
       const ordered = [uploaded.find((m) => m.key === portraitKey)!, ...uploaded.filter((m) => m.key !== portraitKey)];
       for (let i = 0; i < ordered.length; i++) {
@@ -252,6 +257,10 @@ async function createNiche(req: Request) {
     console.error("db insert failed", err);
     await deletePhotos(allKeys);
     return json({ error: "We couldn't create the niche. Please try again." }, 500);
+  }
+
+  if (reminderEmail && nicheId) {
+    await addReminder(nicheId, name, reminderEmail, "keeper", newKeeperToken()).catch((err) => console.error("reminder save failed", err));
   }
 
   const base = baseUrl(req);
@@ -444,6 +453,30 @@ async function keeperAddPhotos(req: Request, slug: string) {
   return json({ ok: true, added: items.length });
 }
 
+async function remindMe(req: Request, slug: string) {
+  if (!sameOrigin(req)) return json({ error: "Not allowed" }, 403);
+  if (!allow(`remind:${clientIp(req)}`, 20, 60 * 60 * 1000)) return json({ error: "Please try again a little later." }, 429);
+  let data: { email?: unknown; consent?: unknown };
+  try {
+    data = await req.json();
+  } catch {
+    return json({ error: "Please try again." }, 400);
+  }
+  if (data.consent !== true) return json({ error: "Please tick the box to agree to the reminder emails." }, 400);
+  const email = cleanEmail(data.email);
+  if (!email) return json({ error: "Please check your email address." }, 400);
+  const niche = await getNiche(slug);
+  if (!niche) return json({ error: "Niche not found" }, 404);
+  await addReminder(niche.id, niche.name, email, "visitor", newKeeperToken());
+  return json({ ok: true });
+}
+
+function csvCell(v: unknown): string {
+  let t = v instanceof Date ? v.toISOString() : String(v ?? "");
+  if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; // stop spreadsheet formulas
+  return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+}
+
 async function servePhoto(req: Request) {
   const key = decodeURIComponent(new URL(req.url).pathname.replace(/^\/photo\//, ""));
   if (!KEY_PATTERN.test(key)) return new Response("Not found", { status: 404 });
@@ -591,6 +624,56 @@ const server = Bun.serve({
       });
     }),
 
+    "/privacy": safe(() => html(privacyPage())),
+    "/unsubscribe": {
+      GET: safe(async (req) => {
+        const t = new URL(req.url).searchParams.get("t") ?? "";
+        const r = t ? await findReminder(t) : null;
+        if (!r) {
+          const p = messagePage("This link isn't valid", "It may have been copied incompletely. Every reminder email has its own unsubscribe link.", 404);
+          return html(p.html, p.status);
+        }
+        return html(unsubscribePage({ token: t, name: r.name, email: r.email, done: false, already: !!r.unsubscribed_at }), 200, { "Cache-Control": "no-store" });
+      }),
+      POST: safe(async (req) => {
+        const form = await req.formData().catch(() => null);
+        const t = form ? String(form.get("t") ?? "") : new URL(req.url).searchParams.get("t") ?? "";
+        const r = t ? await findReminder(t) : null;
+        if (!r) {
+          const p = messagePage("This link isn't valid", "It may have been copied incompletely.", 404);
+          return html(p.html, p.status);
+        }
+        await unsubscribeReminder(r.id);
+        console.log(`Reminder unsubscribed for ${r.slug}`);
+        return html(unsubscribePage({ token: t, name: r.name, email: r.email, done: true, already: false }), 200, { "Cache-Control": "no-store" });
+      }),
+    },
+    "/admin/reminders.csv": {
+      POST: safe(async (req) => {
+        if (!sameOrigin(req)) return new Response("Not allowed", { status: 403 });
+        const form = await req.formData().catch(() => null);
+        const key = form ? String(form.get("key") ?? "") : "";
+        const check = adminKeyCheck(req, key);
+        if (check !== "ok") return adminDenied(check);
+        const base = baseUrl(req);
+        const rows = await exportReminders();
+        const header = ["email", "role", "pet", "niche_link", "remembrance_day", "consented_at", "consent_wording", "unsubscribe_link"];
+        const lines = [header.join(",")].concat(
+          rows.map((r) =>
+            [r.email, r.role, r.pet, `${base}/pet/${r.slug}`, r.remembrance_day ?? "", r.consent_at, r.consent_text, `${base}/unsubscribe?t=${r.unsubscribe_token}`]
+              .map(csvCell)
+              .join(","),
+          ),
+        );
+        return new Response("\uFEFF" + lines.join("\r\n") + "\r\n", {
+          headers: {
+            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": `attachment; filename="starlight-garden-reminders-${new Date().toISOString().slice(0, 10)}.csv"`,
+            "Cache-Control": "no-store",
+          },
+        });
+      }),
+    },
     "/admin": {
       GET: safe(() => html(adminLoginPage(), 200, { "Cache-Control": "no-store", "Referrer-Policy": "same-origin" })),
       POST: safe(async (req) => {
@@ -598,8 +681,8 @@ const server = Bun.serve({
         const key = form ? String(form.get("key") ?? "") : "";
         const check = adminKeyCheck(req, key);
         if (check !== "ok") return adminDenied(check);
-        const niches = await listNiches({ limit: 500 });
-        return html(adminListPage(niches, key), 200, { "Cache-Control": "no-store", "Referrer-Policy": "same-origin" });
+        const [niches, counts] = await Promise.all([listNiches({ limit: 500 }), reminderCounts()]);
+        return html(adminListPage(niches, key, undefined, counts), 200, { "Cache-Control": "no-store", "Referrer-Policy": "same-origin" });
       }),
     },
     "/admin/keeper-link": {
@@ -617,7 +700,7 @@ const server = Bun.serve({
         await sql`UPDATE niches SET keeper_token_hash = ${hashToken(token)} WHERE id = ${niche.id}`;
         const url = `${baseUrl(req)}/keeper/${niche.slug}?token=${encodeURIComponent(token)}`;
         console.log(`Owner issued a new keeper link for ${niche.slug}`);
-        return html(adminListPage(niches, key, { name: niche.name, url }), 200, { "Cache-Control": "no-store", "Referrer-Policy": "same-origin" });
+        return html(adminListPage(niches, key, { name: niche.name, url }, await reminderCounts()), 200, { "Cache-Control": "no-store", "Referrer-Policy": "same-origin" });
       }),
     },
 
@@ -639,6 +722,7 @@ const server = Bun.serve({
     "/api/pet/:slug/candle": { POST: safe((req) => tribute(req, req.params.slug, "candle")) },
     "/api/pet/:slug/flower": { POST: safe((req) => tribute(req, req.params.slug, "flower")) },
     "/api/pet/:slug/notes": { POST: safe((req) => addNote(req, req.params.slug)) },
+    "/api/pet/:slug/remind": { POST: safe((req) => remindMe(req, req.params.slug)) },
     "/api/keeper/:slug/remove-note": { POST: safe((req) => keeperAction(req, req.params.slug, "remove-note")) },
     "/api/keeper/:slug/delete": { POST: safe((req) => keeperAction(req, req.params.slug, "delete")) },
     "/api/keeper/:slug/details": { POST: safe((req) => keeperDetails(req, req.params.slug)) },

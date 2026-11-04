@@ -77,6 +77,20 @@ export async function migrate() {
   await sql`CREATE INDEX IF NOT EXISTS photos_niche_idx ON photos(niche_id, position)`;
   await sql`CREATE INDEX IF NOT EXISTS notes_niche_idx ON notes(niche_id, created_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS niches_created_idx ON niches(created_at DESC)`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS reminders (
+      id SERIAL PRIMARY KEY,
+      niche_id INTEGER NOT NULL REFERENCES niches(id) ON DELETE CASCADE,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'visitor',
+      consent_text TEXT NOT NULL,
+      consent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      unsubscribe_token TEXT NOT NULL UNIQUE,
+      unsubscribed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (niche_id, email)
+    )`;
+  await sql`CREATE INDEX IF NOT EXISTS reminders_niche_idx ON reminders(niche_id)`;
   // Pets are shown by first name only, with a capital first letter ("BELLA NG" -> "Bella").
   await sql`
     UPDATE niches SET name = initcap(split_part(btrim(name), ' ', 1))
@@ -143,4 +157,50 @@ export async function listPortraits(limit = 30): Promise<{ name: string; portrai
     WHERE portrait_key IS NOT NULL
     ORDER BY created_at DESC
     LIMIT ${limit}`) as { name: string; portrait_key: string }[];
+}
+
+// ---------- email reminder opt-ins ----------
+
+export function consentText(petName: string): string {
+  return `Email me a week before and on ${petName}'s remembrance day, with ways to remember them (such as lighting a candle or sending flowers and keepsakes). I can unsubscribe at any time.`;
+}
+
+export async function addReminder(nicheId: number, petName: string, email: string, role: "keeper" | "visitor", token: string) {
+  await sql`
+    INSERT INTO reminders (niche_id, email, role, consent_text, unsubscribe_token)
+    VALUES (${nicheId}, ${email}, ${role}, ${consentText(petName)}, ${token})
+    ON CONFLICT (niche_id, email) DO UPDATE SET
+      unsubscribed_at = NULL,
+      consent_at = now(),
+      consent_text = EXCLUDED.consent_text,
+      role = CASE WHEN reminders.role = 'keeper' THEN 'keeper' ELSE EXCLUDED.role END`;
+}
+
+export async function findReminder(token: string) {
+  const rows = await sql`
+    SELECT r.id, r.email, r.unsubscribed_at, n.name, n.slug
+    FROM reminders r JOIN niches n ON n.id = r.niche_id
+    WHERE r.unsubscribe_token = ${token} LIMIT 1`;
+  return (rows[0] as { id: number; email: string; unsubscribed_at: Date | null; name: string; slug: string }) ?? null;
+}
+
+export async function unsubscribeReminder(id: number) {
+  await sql`UPDATE reminders SET unsubscribed_at = now() WHERE id = ${id} AND unsubscribed_at IS NULL`;
+}
+
+export async function reminderCounts(): Promise<Map<number, number>> {
+  const rows = await sql`SELECT niche_id, count(*)::int AS n FROM reminders WHERE unsubscribed_at IS NULL GROUP BY niche_id`;
+  return new Map((rows as { niche_id: number; n: number }[]).map((r) => [r.niche_id, r.n]));
+}
+
+export async function exportReminders() {
+  return (await sql`
+    SELECT r.email, r.role, n.name AS pet, n.slug, to_char(n.passed, 'YYYY-MM-DD') AS remembrance_day,
+           r.consent_at, r.consent_text, r.unsubscribe_token
+    FROM reminders r JOIN niches n ON n.id = r.niche_id
+    WHERE r.unsubscribed_at IS NULL
+    ORDER BY n.passed NULLS LAST, n.name, r.email`) as {
+    email: string; role: string; pet: string; slug: string; remembrance_day: string | null;
+    consent_at: Date; consent_text: string; unsubscribe_token: string;
+  }[];
 }

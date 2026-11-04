@@ -1,5 +1,5 @@
 import type { Niche, Note, Photo } from "./db";
-import { KINDS } from "./db";
+import { KINDS, consentText } from "./db";
 import { analyticsTag } from "./analytics";
 import { ageYears, datesLine, esc, timeAgo, yearsLine } from "./util";
 
@@ -90,7 +90,7 @@ function nav(variant: "hero" | "compact" | "night") {
 function footer() {
   return `<footer class="footer"><div class="wrap footer-row">
     <span class="footer-brand">${SITE_NAME}</span>
-    <span>Every friend is remembered here.</span>
+    <span>Every friend is remembered here. · <a href="/privacy" class="footer-link">Privacy</a></span>
   </div></footer>`;
 }
 
@@ -294,6 +294,19 @@ function rememberSection(n: Niche, url: string): string {
       <h2 id="remember-h">Remember ${esc(n.name)} every year</h2>
       <p class="muted">Add a gentle yearly reminder to your phone's calendar on the day ${esc(n.name)} passed, so you can come back and light a candle.</p>
       <ul class="remember-list">${rows}</ul>
+      <form class="remind-form" data-remind-form>
+        <h3>Or get an email reminder</h3>
+        <div class="remind-row">
+          <div class="field-inline">
+            <label for="remind-email">Your email</label>
+            <input id="remind-email" name="email" type="email" autocomplete="email" inputmode="email" required>
+          </div>
+        </div>
+        <label class="consent"><input type="checkbox" name="consent" required> <span>${esc(consentText(n.name))}</span></label>
+        <div><button class="btn btn-sage" type="submit">Remind me</button></div>
+        <p class="muted small">Your email is never shown on the site. <a href="/privacy">Privacy</a></p>
+        <p class="form-status" role="status" aria-live="polite" data-remind-status></p>
+      </form>
     </section>`;
 }
 
@@ -577,6 +590,10 @@ export function createPage(base: string) {
           <div class="field"><label for="plaque_line">A line for their plaque <span class="optional">(optional)</span></label><input id="plaque_line" name="plaque_line" type="text" maxlength="80" placeholder="Forever curled up in a sunbeam"></div>
           <div class="field"><label for="story">Their story <span class="optional">(optional)</span></label><textarea id="story" name="story" rows="6" maxlength="4000" placeholder="What made them who they were: their habits, the places they loved, what you miss most."></textarea></div>
           <div class="field"><label for="keeper_name">Kept by <span class="optional">(optional, shown on the niche)</span></label><input id="keeper_name" name="keeper_name" type="text" maxlength="60" placeholder="e.g. The Tan family"></div>
+          <div class="remind-create">
+            <label class="consent"><input type="checkbox" name="remind_me" data-remind-toggle> <span>Email me a week before and on their remembrance day, with ways to remember them (such as lighting a candle or sending flowers and keepsakes). I can unsubscribe at any time.</span></label>
+            <div class="field" data-remind-email hidden><label for="remind_email">Your email <span class="optional">(never shown on the site)</span></label><input id="remind_email" name="remind_email" type="email" autocomplete="email" inputmode="email"></div>
+          </div>
         </fieldset>
 
         <fieldset>
@@ -795,6 +812,45 @@ export function keeperPage(opts: { niche: Niche; notes: Note[]; photos: Photo[];
   return layout({ title: `Keeper · ${n.name} · ${SITE_NAME}`, header: "compact", body, noindex: true });
 }
 
+export function unsubscribePage(opts: { token: string; name: string; email: string; done: boolean; already: boolean }) {
+  const masked = opts.email.replace(/^(.{2})[^@]*(@.*)$/, "$1•••$2");
+  const body = opts.done || opts.already
+    ? `<h1 class="page-title">You're unsubscribed</h1>
+       <p class="muted">We won't email ${esc(masked)} about ${esc(opts.name)} again. ${esc(opts.name)}'s niche is still here whenever you'd like to visit.</p>`
+    : `<h1 class="page-title">Stop reminders about ${esc(opts.name)}?</h1>
+       <p class="muted">We'll stop emailing ${esc(masked)} about ${esc(opts.name)}'s remembrance day.</p>
+       <form method="post" action="/unsubscribe"><input type="hidden" name="t" value="${esc(opts.token)}"><button class="btn btn-dark" type="submit">Unsubscribe</button></form>`;
+  return layout({
+    title: `Email reminders · ${SITE_NAME}`,
+    header: "compact",
+    noindex: true,
+    body: `<div class="wrap section center message">${body}<a class="btn btn-outline" href="/">Return to the garden</a></div>`,
+  });
+}
+
+export function privacyPage() {
+  return layout({
+    title: `Privacy · ${SITE_NAME}`,
+    header: "compact",
+    body: `<div class="wrap section prose">
+      <h1 class="page-title">Privacy</h1>
+      <p class="muted">Last updated 4 November 2026</p>
+      <h2>What we keep</h2>
+      <ul>
+        <li><strong>Niches:</strong> the pet's name, dates, words and the photos and videos you upload. These are public on the site so friends and family can visit.</li>
+        <li><strong>Notes:</strong> the note and the name you give (if any). These are public on the pet's niche.</li>
+        <li><strong>Candles and flowers:</strong> only a count. We don't record who left them.</li>
+        <li><strong>Email reminders:</strong> if you ask for them, your email address, which pet it's for, and when and how you agreed. Your email is never shown on the site.</li>
+        <li><strong>Visits:</strong> we count page visits with Umami, which doesn't use cookies or identify you, and we respect "Do Not Track".</li>
+      </ul>
+      <h2>Email reminders</h2>
+      <p>We only email people who tick the box asking for reminders. Each email has an unsubscribe link, and unsubscribing stops all reminders about that pet. We don't sell or share email addresses.</p>
+      <h2>Removing things</h2>
+      <p>Whoever created a niche can edit it or remove it, along with its photos, videos and notes, using their private keeper link. If you've lost it, or want your email or a note removed, contact the site owner.</p>
+    </div>`,
+  });
+}
+
 export function adminLoginPage(error = "") {
   return layout({
     title: `Owner · ${SITE_NAME}`,
@@ -812,11 +868,12 @@ export function adminLoginPage(error = "") {
   });
 }
 
-export function adminListPage(niches: Niche[], key: string, issued?: { name: string; url: string }) {
+export function adminListPage(niches: Niche[], key: string, issued?: { name: string; url: string }, counts: Map<number, number> = new Map()) {
+  const totalReminders = [...counts.values()].reduce((a, b) => a + b, 0);
   const rows = niches
     .map(
       (n) => `<li class="admin-row">
-        <span><strong>${esc(n.name)}</strong> <span class="muted small">· ${esc(n.kind)} · /pet/${esc(n.slug)}${n.keeper_name ? ` · kept by ${esc(n.keeper_name)}` : ""}</span></span>
+        <span><strong>${esc(n.name)}</strong> <span class="muted small">· ${esc(n.kind)} · /pet/${esc(n.slug)}${n.keeper_name ? ` · kept by ${esc(n.keeper_name)}` : ""}${n.passed ? ` · remembrance ${esc(n.passed.slice(5))}` : ""} · ${counts.get(n.id) ?? 0} reminder sign-ups</span></span>
         <form method="post" action="/admin/keeper-link">
           <input type="hidden" name="key" value="${esc(key)}">
           <input type="hidden" name="slug" value="${esc(n.slug)}">
@@ -840,6 +897,14 @@ export function adminListPage(niches: Niche[], key: string, issued?: { name: str
             </div>`
           : ""
       }
+      <section class="section-tight card">
+        <h2>Email reminder list</h2>
+        <p class="muted">${totalReminders} active sign-ups. Download them as a spreadsheet (CSV) with each person's consent and unsubscribe link, ready for your email service.</p>
+        <form method="post" action="/admin/reminders.csv">
+          <input type="hidden" name="key" value="${esc(key)}">
+          <button class="btn btn-dark" type="submit">Download reminder list</button>
+        </form>
+      </section>
       <section class="section-tight">
         <h2>Niches (${niches.length})</h2>
         <p class="muted">Issue a fresh private keeper link when an owner has lost theirs. It replaces the old link.</p>
