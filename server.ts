@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { analyticsOrigins } from "./src/analytics";
+import { getShelter } from "./src/shelters";
 import { createCheckout, getCheckout, getGift, giftsEnabled, verifyWebhook } from "./src/gifts";
 import { MAX_VIDEO_BYTES, MAX_VIDEOS_PER_NICHE, VideoError, processVideo, sniffVideo, videoToolsAvailable } from "./src/media";
 import { KINDS, activeGifts, createGiftRow, findGiftBySession, giftSales, keeperGifts, markGiftPaid, setGiftHidden, setGiftSession, addReminder, exportReminders, findReminder, reminderCounts, unsubscribeReminder, countNiches, getNiche, getNotes, getPhotos, listNiches, listPortraits, migrate, sql } from "./src/db";
@@ -172,6 +173,7 @@ type Details = {
   plaqueLine: string | null;
   story: string | null;
   keeperName: string | null;
+  shelter: string | null;
 };
 
 /** Reads and checks the niche's written details from any source of fields. */
@@ -195,6 +197,7 @@ function readDetails(get: (name: string, max: number) => string): Details | { er
     plaqueLine: get("plaque_line", 80) || null,
     story: get("story", 4000) || null,
     keeperName: get("keeper_name", 60) || null,
+    shelter: getShelter(get("shelter", 20))?.id ?? null,
   };
 }
 
@@ -364,7 +367,8 @@ async function keeperDetails(req: Request, slug: string) {
     UPDATE niches SET
       name = ${details.name}, kind = ${details.kind},
       born = ${details.born}::date, passed = ${details.passed}::date,
-      plaque_line = ${details.plaqueLine}, story = ${details.story}, keeper_name = ${details.keeperName}
+      plaque_line = ${details.plaqueLine}, story = ${details.story}, keeper_name = ${details.keeperName},
+      shelter = ${details.shelter}
     WHERE id = ${niche.id}`;
   return json({ ok: true });
 }
@@ -522,6 +526,17 @@ async function confirmGift(sessionId: string): Promise<string | null> {
   const done = await markGiftPaid(row.id, sessionId, session.amount_total);
   if (done) console.log(`Gift paid: ${row.gift} for niche ${row.niche_id}`);
   return row.gift;
+}
+
+async function kindness(req: Request, slug: string) {
+  if (!sameOrigin(req)) return json({ error: "Not allowed" }, 403);
+  const ip = clientIp(req);
+  if (!allow(`kind:${ip}`, 30, 60 * 60 * 1000)) return json({ error: "Please slow down a little." }, 429);
+  const niche = await getNiche(slug);
+  if (!niche) return json({ error: "Niche not found" }, 404);
+  if (!allow(`kind:${ip}:${slug}`, 1, 12 * 60 * 60 * 1000)) return json({ kindness: niche.kindness, repeat: true });
+  const [row] = await sql`UPDATE niches SET kindness = kindness + 1 WHERE id = ${niche.id} RETURNING kindness`;
+  return json({ kindness: row.kindness });
 }
 
 async function stripeWebhook(req: Request) {
@@ -784,6 +799,7 @@ const server = Bun.serve({
     "/api/pet/:slug/notes": { POST: safe((req) => addNote(req, req.params.slug)) },
     "/api/pet/:slug/remind": { POST: safe((req) => remindMe(req, req.params.slug)) },
     "/api/pet/:slug/gift": { POST: safe((req) => startGift(req, req.params.slug)) },
+    "/api/pet/:slug/kindness": { POST: safe((req) => kindness(req, req.params.slug)) },
     "/api/stripe/webhook": { POST: safe(stripeWebhook) },
     "/api/keeper/:slug/gift-hide": {
       POST: safe(async (req) => {

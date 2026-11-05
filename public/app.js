@@ -744,7 +744,7 @@
       detailsForm.addEventListener("submit", function (e) {
         e.preventDefault();
         var body = { token: token };
-        ["name", "kind", "born", "passed", "plaque_line", "story", "keeper_name"].forEach(function (k) {
+        ["name", "kind", "born", "passed", "plaque_line", "story", "keeper_name", "shelter"].forEach(function (k) {
           body[k] = detailsForm.elements[k].value;
         });
         var btn = detailsForm.querySelector("button[type=submit]");
@@ -1103,5 +1103,43 @@
         .then(function (r) { if (!r.ok) throw new Error("Couldn't update the gift. Please try again."); location.reload(); })
         .catch(function (err) { if (st) st.textContent = err.message; b.disabled = false; });
     });
+  });
+})();
+
+// ---------------- shelter donations ----------------
+(function () {
+  var niche = document.querySelector("[data-niche]");
+  var section = document.querySelector("#shelters");
+  if (!niche || !section) return;
+  var slug = niche.getAttribute("data-niche");
+  var ask = section.querySelector("[data-kindness-ask]");
+  var btn = section.querySelector("[data-kindness-btn]");
+  var key = "sg:kind:" + slug;
+  var done = false;
+  try { done = !!localStorage.getItem(key); } catch (e) {}
+  section.querySelectorAll("[data-shelter-link]").forEach(function (a) {
+    a.addEventListener("click", function () {
+      if (done) return;
+      setTimeout(function () { ask.hidden = false; }, 1200);
+    });
+  });
+  if (!btn) return;
+  btn.addEventListener("click", function () {
+    btn.disabled = true;
+    fetch("/api/pet/" + encodeURIComponent(slug) + "/kindness", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        try { localStorage.setItem(key, "1"); } catch (e) {}
+        done = true;
+        var line = section.querySelector("[data-kindness-line]");
+        if (typeof res.kindness === "number") {
+          section.querySelector("[data-kindness-count]").textContent = res.kindness;
+          section.querySelector("[data-kindness-label]").textContent = res.kindness === 1 ? "visitor has" : "visitors have";
+          line.hidden = false;
+        }
+        ask.innerHTML = "<p>Thank you for your kindness. It means a lot.</p>";
+        try { if (window.umami) window.umami.track("Shelter donation reported"); } catch (e) {}
+      })
+      .catch(function () { btn.disabled = false; });
   });
 })();

@@ -24,6 +24,8 @@ export type Niche = {
   portrait_key: string | null;
   candles: number;
   flowers: number;
+  shelter: string | null;
+  kindness: number;
   created_at: Date;
 };
 
@@ -109,6 +111,8 @@ export async function migrate() {
       expires_at TIMESTAMPTZ
     )`;
   await sql`CREATE INDEX IF NOT EXISTS gifts_niche_idx ON gifts(niche_id, status)`;
+  await sql`ALTER TABLE niches ADD COLUMN IF NOT EXISTS shelter TEXT`;
+  await sql`ALTER TABLE niches ADD COLUMN IF NOT EXISTS kindness INTEGER NOT NULL DEFAULT 0`;
   // Pets are shown by first name only, with a capital first letter ("BELLA NG" -> "Bella").
   await sql`
     UPDATE niches SET name = initcap(split_part(btrim(name), ' ', 1))
@@ -121,7 +125,7 @@ export async function getNiche(slug: string): Promise<Niche | null> {
       to_char(born, 'YYYY-MM-DD') AS born,
       to_char(passed, 'YYYY-MM-DD') AS passed,
       plaque_line, story, keeper_name, keeper_token_hash, portrait_key,
-      candles, flowers, created_at
+      candles, flowers, shelter, kindness, created_at
     FROM niches WHERE slug = ${slug} LIMIT 1`;
   return (rows[0] as Niche) ?? null;
 }
@@ -136,7 +140,7 @@ export async function listNiches(opts: { q?: string; kind?: string; limit?: numb
       to_char(born, 'YYYY-MM-DD') AS born,
       to_char(passed, 'YYYY-MM-DD') AS passed,
       plaque_line, story, keeper_name, keeper_token_hash, portrait_key,
-      candles, flowers, created_at
+      candles, flowers, shelter, kindness, created_at
     FROM niches
     WHERE (${q}::text IS NULL OR name ILIKE ${q})
       AND (

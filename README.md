@@ -73,6 +73,13 @@ webhook. The shop stays hidden until `STRIPE_SECRET_KEY` is set.
 
 Keepers can hide a gift; the owner page shows sales totals.
 
+## Shelter donations
+
+Each niche shows shelters to donate to in the pet's memory (`src/shelters.ts`: SOSD and ASD for dogs,
+Cat Welfare Society for cats, all three for other pets). The buttons link to each shelter's own donation
+page, so Starlight Garden never handles the money. Keepers can choose a shelter to feature. Visitors can
+say they donated, which adds to a public count on the niche (one per visitor per niche every 12 hours).
+
 ## Analytics (Umami)
 
 Set `UMAMI_WEBSITE_ID` to switch it on. Besides page views it records these events:

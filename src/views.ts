@@ -3,6 +3,7 @@ import { KINDS, consentText } from "./db";
 import type { GiftRow } from "./db";
 import { GIFTS, getGift, giftArt, price, stripeTestMode } from "./gifts";
 import type { GiftId } from "./gifts";
+import { SHELTERS, getShelter, sheltersFor } from "./shelters";
 import { analyticsTag } from "./analytics";
 import { ageYears, datesLine, esc, timeAgo, yearsLine } from "./util";
 
@@ -26,6 +27,8 @@ const icon = {
   calendar: (size = 18) =>
     `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>`,
   play: `<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>`,
+  heart: (size = 20) =>
+    `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>`,
   upload: `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>`,
 };
 
@@ -432,6 +435,36 @@ function giftShelf(n: Niche, gifts: GiftRow[], shopOpen: boolean): string {
     </section>`;
 }
 
+function shelterSection(n: Niche): string {
+  const list = sheltersFor(n.kind, n.shelter);
+  if (!list.length) return "";
+  const chosen = getShelter(n.shelter);
+  const who = n.keeper_name ? esc(n.keeper_name) : `${esc(n.name)}'s family`;
+  const cards = list
+    .map(
+      (sh) => `<li class="shelter-card${chosen && sh.id === chosen.id ? " is-chosen" : ""}">
+        <div class="shelter-text">
+          <span class="shelter-name">${esc(sh.name)}</span>
+          ${chosen && sh.id === chosen.id ? `<span class="shelter-tag">Chosen by ${who}</span>` : ""}
+          <span class="shelter-blurb">${esc(sh.blurb)}</span>
+          ${sh.ipc ? `<span class="shelter-ipc">Registered charity (IPC): donations can be tax-deductible</span>` : ""}
+        </div>
+        <a class="btn btn-sage" href="${esc(sh.url)}" target="_blank" rel="noopener" data-shelter-link data-umami-event="Shelter donate click" data-umami-event-shelter="${esc(sh.id)}">${icon.heart(18)} Donate</a>
+      </li>`,
+    )
+    .join("");
+  return `<section id="shelters" class="shelters" aria-labelledby="shelters-h">
+      <h2 id="shelters-h">Help other furkids in ${esc(n.name)}'s memory</h2>
+      <p class="muted">Make a donation to a shelter caring for animals who still need a home. Your donation goes straight to the shelter; Starlight Garden doesn't receive any of it.</p>
+      <p class="kindness-line" data-kindness-line${n.kindness ? "" : " hidden"}>${icon.heart(18)} <span data-kindness-count>${n.kindness}</span> <span data-kindness-label>${n.kindness === 1 ? "visitor has" : "visitors have"}</span> donated to a shelter in ${esc(n.name)}'s memory.</p>
+      <ul class="shelter-list">${cards}</ul>
+      <div class="kindness-ask" data-kindness-ask hidden>
+        <p>Did you make a donation? Let ${who} know it was in ${esc(n.name)}'s memory.</p>
+        <button type="button" class="btn btn-outline btn-sm" data-kindness-btn>${icon.heart(16)} I donated in ${esc(n.name)}'s memory</button>
+      </div>
+    </section>`;
+}
+
 function giftDialog(n: Niche): string {
   const options = GIFTS.map(
     (g, i) => `<label class="gift-option">
@@ -553,6 +586,8 @@ export function nichePage(opts: {
     ${gallery}
 
     ${giftShelf(n, gifts, shopOpen)}
+
+    ${shelterSection(n)}
 
     <section id="tributes" class="tributes" aria-labelledby="trib-h">
       <div class="tributes-head">
@@ -883,6 +918,7 @@ export function keeperPage(opts: { niche: Niche; notes: Note[]; photos: Photo[];
         <div class="field"><label for="kd-line">A line for their plaque <span class="optional">(optional)</span></label><input id="kd-line" name="plaque_line" type="text" maxlength="80" value="${esc(n.plaque_line ?? "")}"></div>
         <div class="field"><label for="kd-story">Their story <span class="optional">(optional)</span></label><textarea id="kd-story" name="story" rows="7" maxlength="4000">${esc(n.story ?? "")}</textarea></div>
         <div class="field"><label for="kd-keeper">Kept by <span class="optional">(optional, shown on the niche)</span></label><input id="kd-keeper" name="keeper_name" type="text" maxlength="60" value="${esc(n.keeper_name ?? "")}"></div>
+        <div class="field"><label for="kd-shelter">Shelter to feature <span class="optional">(shown first on the niche, with your name)</span></label><select id="kd-shelter" name="shelter"><option value="">Suggest one for the type of pet</option>${SHELTERS.map((sh) => `<option value="${sh.id}"${n.shelter === sh.id ? " selected" : ""}>${esc(sh.name)}</option>`).join("")}</select></div>
         <div class="form-actions">
           <p class="form-status" role="status" aria-live="polite" data-details-status></p>
           <button class="btn btn-dark" type="submit">Save changes</button>

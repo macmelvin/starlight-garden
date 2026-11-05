@@ -495,3 +495,21 @@ legend { font-family: var(--display); font-size: 26px; color: var(--night); marg
   .gifts [data-open-gifts], .btn-gift-top { animation: none; box-shadow: 0 0 0 3px rgba(246,200,110,.8), 0 0 22px rgba(232,176,75,.7); }
   .gifts h2::before { animation: none; box-shadow: 0 0 14px 4px rgba(246,200,110,.9); }
 }
+
+/* ---------- shelters ---------- */
+.shelters { margin-top: 32px; background: #fff; border: 1px solid #E2DCCF; border-radius: 20px; padding: clamp(20px, 3vw, 32px); }
+.shelters h2 { font-size: clamp(24px, 3vw, 32px); }
+.shelters > p { margin: 0 0 16px; }
+.shelter-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.shelter-card { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: center; justify-content: space-between; padding: 16px 18px; border-radius: 14px; background: #F1F5EF; border: 1px solid #C5DCCB; }
+.shelter-card.is-chosen { border-color: var(--sage); box-shadow: 0 0 0 2px rgba(78,107,82,.25); }
+.shelter-text { flex: 1 1 260px; display: flex; flex-direction: column; gap: 4px; }
+.shelter-name { font-weight: 700; color: var(--night); font-size: 17px; }
+.shelter-tag { align-self: flex-start; font-size: 12px; font-weight: 700; color: #fff; background: var(--sage); padding: 2px 10px; border-radius: 999px; }
+.shelter-blurb { color: var(--ink-2); }
+.shelter-ipc { font-size: 13px; color: var(--sage-dark); }
+.kindness-line { color: var(--sage-dark); font-weight: 600; line-height: 1.5; }
+.kindness-line svg { vertical-align: -3px; margin-right: 4px; }
+.kindness-line[hidden] { display: none; }
+.kindness-ask { margin-top: 14px; padding: 14px 16px; border-radius: 12px; background: #FFF6E4; border: 1px solid #EBD3A3; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.kindness-ask p { margin: 0; flex: 1 1 240px; }
