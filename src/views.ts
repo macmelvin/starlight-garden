@@ -423,10 +423,10 @@ function giftShelf(n: Niche, gifts: GiftRow[], shopOpen: boolean): string {
   return `<section id="gifts" class="gifts" aria-labelledby="gifts-h">
       <div class="gifts-head">
         <div>
-          <h2 id="gifts-h">Gifts for ${esc(n.name)}</h2>
-          <p class="muted">${gifts.length ? "Left with love by family and friends." : `Leave something special at ${esc(n.name)}'s niche.`}</p>
+          <h2 id="gifts-h">${esc(n.name)}'s Karma</h2>
+          <p class="muted">${gifts.length ? `${gifts.length} ${gifts.length === 1 ? "offering" : "offerings"} of love from family and friends, adding to ${esc(n.name)}'s karma.` : `Every offering at ${esc(n.name)}'s niche adds to their karma.`}</p>
         </div>
-        ${shopOpen ? `<button type="button" class="btn btn-gold" data-open-gifts>Leave a gift</button>` : ""}
+        ${shopOpen ? `<button type="button" class="btn btn-gold" data-open-gifts>Build ${esc(n.name)}'s Karma</button>` : ""}
       </div>
       ${gifts.length ? `<ul class="gift-shelf">${items}</ul>` : ""}
     </section>`;
@@ -446,13 +446,14 @@ function giftDialog(n: Niche): string {
   ).join("");
   return `<dialog class="giftmaker" data-gift-dialog aria-labelledby="gift-h">
     <form class="giftmaker-inner" data-gift-form>
-      <h2 id="gift-h">Leave a gift for ${esc(n.name)}</h2>
+      <h2 id="gift-h">Build ${esc(n.name)}'s Karma</h2>
+      <p class="muted">Choose an offering to leave at ${esc(n.name)}'s niche.</p>
       <fieldset class="gift-grid"><legend class="visually-hidden">Choose a gift</legend>${options}</fieldset>
       <div class="grid-2">
         <div class="field"><label for="gift-from">From <span class="optional">(optional, shown with the gift)</span></label><input id="gift-from" name="from_name" type="text" maxlength="40" autocomplete="name"></div>
         <div class="field"><label for="gift-msg">A short message <span class="optional">(optional)</span></label><input id="gift-msg" name="message" type="text" maxlength="120"></div>
       </div>
-      <p class="muted small">Secure payment by Stripe: card, PayNow, Apple Pay or Google Pay. Gifts are digital and appear at ${esc(n.name)}'s niche as soon as payment goes through.${stripeTestMode() ? " <strong>Test mode: no real money is charged.</strong>" : ""}</p>
+      <p class="muted small">Secure payment by Stripe: card, PayNow, Apple Pay or Google Pay. Offerings are digital and appear at ${esc(n.name)}'s niche as soon as payment goes through.${stripeTestMode() ? " <strong>Test mode: no real money is charged.</strong>" : ""}</p>
       <p class="form-status" role="status" aria-live="polite" data-gift-status></p>
       <div class="actions cardmaker-actions">
         <button type="button" class="btn btn-outline" data-gift-close>Cancel</button>
@@ -524,8 +525,8 @@ export function nichePage(opts: {
        data-dates="${esc(dates)}"
        data-line="${esc(n.plaque_line ?? "")}"
        data-host="${esc(base.replace(/^https?:\/\//, ""))}">
-    ${opts.thanks ? `<div class="anniv gift-thanks" role="status"><span class="gift-art">${giftArt((getGift(opts.thanks)?.id ?? "bouquet") as GiftId)}</span><span>Thank you. Your ${esc(getGift(opts.thanks)?.name.toLowerCase() ?? "gift")} is now at ${esc(n.name)}'s niche.</span><a class="btn btn-gold btn-sm" href="#gifts">See it</a></div>` : ""}
-    ${annivLine ? `<div class="anniv" role="note">${icon.candle(22)}<span>${esc(annivLine)}</span><a class="btn btn-gold btn-sm" href="#tributes">Light a candle</a>${shopOpen ? `<button type="button" class="btn btn-outline btn-sm" data-open-gifts data-gift-pick="bundle">Send a remembrance gift</button>` : ""}</div>` : ""}
+    ${opts.thanks ? `<div class="anniv gift-thanks" role="status"><span class="gift-art">${giftArt((getGift(opts.thanks)?.id ?? "bouquet") as GiftId)}</span><span>Thank you. Your ${esc(getGift(opts.thanks)?.name.toLowerCase() ?? "gift")} is now at ${esc(n.name)}'s niche, adding to their karma.</span><a class="btn btn-gold btn-sm" href="#gifts">See it</a></div>` : ""}
+    ${annivLine ? `<div class="anniv" role="note">${icon.candle(22)}<span>${esc(annivLine)}</span><a class="btn btn-gold btn-sm" href="#tributes">Light a candle</a>${shopOpen ? `<button type="button" class="btn btn-outline btn-sm" data-open-gifts data-gift-pick="bundle">Build ${esc(n.name)}'s Karma</button>` : ""}</div>` : ""}
     <section class="niche-hero">
       <div class="alcove">
         ${portraitBox(n, "alcove-photo", 56)}
@@ -544,7 +545,7 @@ export function nichePage(opts: {
           <a class="btn btn-outline" href="/sky?pet=${esc(n.slug)}">See ${esc(n.name)}'s star</a>
           <a class="btn btn-wa" data-share data-umami-event="Send a Light" data-umami-event-from="niche top" href="${esc(waLink(msg))}" target="_blank" rel="noopener" aria-label="Send a Light: share ${esc(n.name)}'s niche on WhatsApp">${icon.share()} Send a Light</a>
           <button type="button" class="btn btn-outline" data-open-card>${icon.card()} Story card</button>
-          ${shopOpen ? `<button type="button" class="btn btn-gold btn-gift-top" data-open-gifts>${icon.flower()} Leave a gift</button>` : ""}
+          ${shopOpen ? `<button type="button" class="btn btn-gold btn-gift-top" data-open-gifts>${icon.flower()} Build ${esc(n.name)}'s Karma</button>` : ""}
         </div>
       </div>
     </section>
@@ -892,8 +893,8 @@ export function keeperPage(opts: { niche: Niche; notes: Note[]; photos: Photo[];
     ${
       keeperGiftRows
         ? `<section class="section-tight">
-            <h2>Gifts</h2>
-            <p class="muted">Hiding a gift takes it off the niche page. It doesn't refund the person who sent it.</p>
+            <h2>Karma offerings</h2>
+            <p class="muted">Hiding an offering takes it off the niche page. It doesn't refund the person who sent it.</p>
             <ul class="notes">${keeperGiftRows}</ul>
             <p class="form-status" role="status" data-gift-hide-status></p>
           </section>`
