@@ -443,18 +443,55 @@ legend { font-family: var(--display); font-size: 26px; color: var(--night); marg
 
 /* ---------- make gifts easy to notice ---------- */
 @keyframes gift-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(232,176,75,.0), 0 0 18px rgba(232,176,75,.15); }
-  50% { box-shadow: 0 0 0 4px rgba(232,176,75,.35), 0 0 42px rgba(232,176,75,.45); }
+  0%, 100% { box-shadow: 0 0 0 2px rgba(232,176,75,.55), 0 0 22px 2px rgba(232,176,75,.25); border-color: rgba(232,176,75,.7); }
+  50% { box-shadow: 0 0 0 6px rgba(246,200,110,.75), 0 0 80px 22px rgba(232,176,75,.65); border-color: #F6C86E; }
+}
+@keyframes gift-shimmer {
+  0% { transform: translateX(-120%) skewX(-18deg); }
+  55%, 100% { transform: translateX(260%) skewX(-18deg); }
+}
+@keyframes gift-ring {
+  0% { transform: scale(1); opacity: .85; }
+  100% { transform: scale(1.55); opacity: 0; }
 }
 @keyframes gift-btn-pulse {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(232,176,75,.55); }
-  50% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(232,176,75,0); }
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.07); }
 }
-.gifts { border: 1px solid rgba(232,176,75,.55); animation: gift-glow 2.6s ease-in-out infinite; }
-.gifts h2::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 10px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 10px 2px rgba(232,176,75,.7); vertical-align: middle; }
-.gifts [data-open-gifts], .btn-gift-top { animation: gift-btn-pulse 2.2s ease-in-out infinite; }
-.gifts [data-open-gifts]:hover, .btn-gift-top:hover { animation-play-state: paused; }
+@keyframes gift-dot {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 8px 2px rgba(232,176,75,.6); }
+  50% { transform: scale(1.5); box-shadow: 0 0 18px 6px rgba(246,200,110,.95); }
+}
+@keyframes gift-fade {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(232,176,75,.5), 0 0 30px 6px rgba(232,176,75,.3); }
+  50% { box-shadow: 0 0 0 6px rgba(246,200,110,.8), 0 0 70px 18px rgba(232,176,75,.6); }
+}
+.gifts {
+  position: relative; overflow: hidden; border: 2px solid rgba(232,176,75,.7);
+  background: radial-gradient(120% 90% at 100% 0%, rgba(232,176,75,.22) 0%, rgba(232,176,75,0) 55%), linear-gradient(180deg, #1B2236 0%, #2A3550 100%);
+  animation: gift-glow 1.8s ease-in-out infinite;
+}
+.gifts::after {
+  content: ""; position: absolute; top: -20%; bottom: -20%; left: 0; width: 35%; pointer-events: none;
+  background: linear-gradient(90deg, rgba(255,226,154,0) 0%, rgba(255,226,154,.28) 50%, rgba(255,226,154,0) 100%);
+  animation: gift-shimmer 3.2s ease-in-out infinite;
+}
+.gifts > * { position: relative; z-index: 1; }
+.gifts h2::before {
+  content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 12px; border-radius: 50%;
+  background: #FFD27A; vertical-align: middle; animation: gift-dot 1.8s ease-in-out infinite;
+}
+.gifts [data-open-gifts], .btn-gift-top { position: relative; animation: gift-btn-pulse 1.8s ease-in-out infinite; box-shadow: 0 0 18px rgba(232,176,75,.6); }
+.gifts [data-open-gifts]::after, .btn-gift-top::after {
+  content: ""; position: absolute; inset: -2px; border-radius: inherit; border: 3px solid #F6C86E; pointer-events: none;
+  animation: gift-ring 1.8s ease-out infinite;
+}
+.gifts [data-open-gifts] { min-height: 54px; padding: 0 28px; font-size: 17px; }
+.gifts [data-open-gifts]:hover, .btn-gift-top:hover, .gifts [data-open-gifts]:focus-visible, .btn-gift-top:focus-visible { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) {
-  .gifts, .gifts [data-open-gifts], .btn-gift-top { animation: none; }
-  .gifts { box-shadow: 0 0 0 3px rgba(232,176,75,.35), 0 0 32px rgba(232,176,75,.35); }
+  /* no movement: keep a clear, slow brighten-and-fade instead */
+  .gifts { animation: gift-fade 3s ease-in-out infinite; }
+  .gifts::after, .gifts [data-open-gifts]::after, .btn-gift-top::after { display: none; }
+  .gifts [data-open-gifts], .btn-gift-top { animation: none; box-shadow: 0 0 0 3px rgba(246,200,110,.8), 0 0 22px rgba(232,176,75,.7); }
+  .gifts h2::before { animation: none; box-shadow: 0 0 14px 4px rgba(246,200,110,.9); }
 }
