@@ -8,7 +8,7 @@ import { KEY_PATTERN, deletePhotos, getThumb, photoFile, putPhoto, s3, storageCo
 import {
   allow, cleanEmail, clientIp, hashToken, petFirstName, isIsoDate, newKeeperToken, randomId, safeEqual, slugify, sniffImage, TYPE_BY_EXT,
 } from "./src/util";
-import { adminListPage, adminLoginPage, createPage, homePage, privacyPage, unsubscribePage, keeperPage, messagePage, nichePage, noteItem, reminderIcs, skyPage } from "./src/views";
+import { adminListPage, adminLoginPage, createPage, homePage, privacyPage, unsubscribePage, keeperPage, messagePage, nichePage, noteItem, reminderIcs, skyPage, walkPage } from "./src/views";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const MAX_PHOTOS = 12;
@@ -611,11 +611,29 @@ const STATIC_TYPES: Record<string, string> = {
   png: "image/png",
 };
 
+const GZ_CACHE = new Map<string, Uint8Array<ArrayBuffer>>();
+
 async function serveStatic(req: Request) {
   const name = new URL(req.url).pathname.replace(/^\/static\//, "");
   if (!/^[a-z0-9-]+\.(css|js|svg|png)$/.test(name)) return new Response("Not found", { status: 404 });
   const file = Bun.file(join(PUBLIC_DIR, name));
   if (!(await file.exists())) return new Response("Not found", { status: 404 });
+  const ext = name.split(".").pop()!;
+  if ((ext === "js" || ext === "css") && (req.headers.get("accept-encoding") ?? "").includes("gzip")) {
+    let gz = GZ_CACHE.get(name);
+    if (!gz) {
+      gz = Bun.gzipSync(new Uint8Array(await file.arrayBuffer())) as Uint8Array<ArrayBuffer>;
+      GZ_CACHE.set(name, gz);
+    }
+    return new Response(gz, {
+      headers: {
+        "Content-Type": STATIC_TYPES[ext],
+        "Content-Encoding": "gzip",
+        Vary: "Accept-Encoding",
+        "Cache-Control": "public, max-age=86400",
+      },
+    });
+  }
   return new Response(file, {
     headers: {
       "Content-Type": STATIC_TYPES[name.split(".").pop()!],
@@ -673,6 +691,12 @@ const server = Bun.serve({
       const selected = new URL(req.url).searchParams.get("pet") ?? undefined;
       const niches = await listNiches({ limit: 300 });
       return html(skyPage({ niches, selected, base: baseUrl(req) }));
+    }),
+
+    "/walk": safe(async (req) => {
+      const selected = new URL(req.url).searchParams.get("pet") ?? undefined;
+      const niches = await listNiches({ limit: 270 });
+      return html(walkPage({ niches, selected, base: baseUrl(req) }));
     }),
 
     "/pet/:slug": safe(async (req) => {

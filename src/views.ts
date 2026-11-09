@@ -87,6 +87,7 @@ function nav(variant: "hero" | "compact" | "night") {
     <div class="nav-links">
       <a href="/#wall">The Garden Wall</a>
       <a href="/sky">Night Sky</a>
+      <a href="/walk">Lantern Walk</a>
       ${variant === "hero" ? `<a href="/#how">How it works</a>` : ""}
       <a class="btn btn-gold" href="/create" data-umami-event="Create niche click" data-umami-event-from="nav">Create a niche</a>
     </div>
@@ -576,6 +577,7 @@ export function nichePage(opts: {
         <div class="actions">
           <a class="btn btn-dark" href="#tributes">Leave a tribute</a>
           <a class="btn btn-outline" href="/sky?pet=${esc(n.slug)}">See ${esc(n.name)}'s star</a>
+          <a class="btn btn-outline" href="/walk?pet=${esc(n.slug)}">Walk to ${esc(n.name)}'s niche</a>
           <a class="btn btn-wa" data-share data-umami-event="Send a Light" data-umami-event-from="niche top" href="${esc(waLink(msg))}" target="_blank" rel="noopener" aria-label="Send a Light: share ${esc(n.name)}'s niche on WhatsApp">${icon.share()} Send a Light</a>
           <button type="button" class="btn btn-outline" data-open-card>${icon.card()} Story card</button>
           ${shopOpen ? `<button type="button" class="btn btn-gold btn-gift-top" data-open-gifts>${icon.flower()} Build ${esc(n.name)}'s Karma</button>` : ""}
@@ -822,6 +824,87 @@ export function skyPage(opts: { niches: Niche[]; selected?: string; base: string
     url: `${opts.base}/sky`,
     image: `${opts.base}/static/og.png`,
     header: "night",
+    night: true,
+    body,
+  });
+}
+
+export function walkPage(opts: { niches: Niche[]; selected?: string; base: string }) {
+  const pets = [...opts.niches]
+    .sort((a, b) => a.id - b.id)
+    .map((n) => ({
+      slug: n.slug,
+      name: n.name,
+      kind: n.kind,
+      years: yearsLine(n.born, n.passed),
+      candles: n.candles,
+      photo: thumbUrl(n.portrait_key),
+    }));
+  const data = JSON.stringify({ pets, selected: opts.selected ?? null }).replace(/</g, "\\u003c");
+  const btn = (key: string, label: string, sub: string, path: string) =>
+    `<button type="button" class="walk-key walk-key-${key}" data-walk-key="${key}" aria-label="${label}"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg><span>${sub}</span></button>`;
+  const body = `
+  <div class="walk" data-walk>
+    <canvas class="walk-canvas" data-walk-canvas aria-label="A walkable night garden lined with memorial niches"></canvas>
+    <div class="walk-loading" data-walk-loading><span class="walk-spark" aria-hidden="true"></span>Lighting the lanterns…</div>
+    <div class="walk-top">
+      <a class="walk-brand" href="/">${icon.logo}<span><strong>${SITE_NAME}</strong><small>The Lantern Walk</small></span></a>
+      <div class="walk-top-btns">
+        <button type="button" class="walk-round" data-walk-sound aria-pressed="false" aria-label="Turn on garden sounds">
+          <svg class="snd-off" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m22 9-6 6M16 9l6 6"/></svg>
+          <svg class="snd-on" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg>
+        </button>
+        <a class="walk-round" href="/#wall" aria-label="Back to the Garden Wall"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></a>
+      </div>
+    </div>
+    <div class="walk-bay">
+      <div class="walk-bay-info"><strong>Lantern Walk</strong><small data-walk-count></small></div>
+      <div class="walk-bay-nav">
+        <button type="button" class="walk-arrow" data-walk-bay="-1" aria-label="Previous bay"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg></button>
+        <span data-walk-bay-label>Bay 1</span>
+        <button type="button" class="walk-arrow" data-walk-bay="1" aria-label="Next bay"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+      </div>
+    </div>
+    <div class="walk-pad" aria-label="Walking controls">
+      ${btn("up", "Walk forward", "W", '<path d="M12 19V5M6 11l6-6 6 6"/>')}
+      ${btn("left", "Turn left", "A", '<path d="M19 12H5M11 6l-6 6 6 6"/>')}
+      ${btn("reset", "Back to the entrance", "Reset", '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>')}
+      ${btn("right", "Turn right", "D", '<path d="M5 12h14M13 6l6 6-6 6"/>')}
+      ${btn("down", "Walk back", "S", '<path d="M12 5v14M6 13l6 6 6-6"/>')}
+    </div>
+    <div class="walk-hint"><strong>WASD or arrow keys</strong><span>Hold arrows to walk · Drag to look</span></div>
+    <div class="walk-legend"><span><i class="dot-gold"></i>Portrait · tap to visit</span><span><i class="dot-stone"></i>Empty · tap to preview</span></div>
+    <section class="walk-card" data-walk-card hidden aria-live="polite">
+      <button type="button" class="walk-card-close" data-walk-close aria-label="Close">×</button>
+      <div class="walk-card-photo" data-walk-card-photo></div>
+      <div class="walk-card-info">
+        <span class="walk-card-name" data-walk-card-name></span>
+        <span class="walk-card-meta" data-walk-card-meta></span>
+        <a class="btn btn-gold walk-card-link" data-walk-card-link href="/create"></a>
+      </div>
+    </section>
+    <section class="walk-find" data-walk-find hidden aria-label="Find a friend">
+      <div class="walk-find-head"><strong>Find a friend</strong><button type="button" class="walk-card-close" data-walk-find-close aria-label="Close">×</button></div>
+      <input type="search" class="walk-find-input" data-walk-find-input placeholder="Type their name" aria-label="Type their name">
+      <ul class="walk-find-list" data-walk-find-list></ul>
+    </section>
+    <nav class="walk-bar" aria-label="Lantern Walk">
+      <button type="button" data-walk-find-open><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Find a friend</span></button>
+      <a href="/create" data-umami-event="Create niche click" data-umami-event-from="walk"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg><span>Create a niche</span></a>
+    </nav>
+    <div class="walk-fallback" data-walk-fallback hidden>
+      <p>This device can't show the 3D garden.</p>
+      <a class="btn btn-gold" href="/#wall">Visit the Garden Wall instead</a>
+    </div>
+    <script type="application/json" id="walk-data">${data}</script>
+  </div>
+  <script type="module" src="/static/walk.js?v=${ASSET_VERSION}"></script>`;
+  return layout({
+    title: `The Lantern Walk · ${SITE_NAME}`,
+    description: "Walk a starlit garden path lined with memorial niches. Tap a portrait to visit a friend.",
+    url: `${opts.base}/walk`,
+    image: `${opts.base}/static/og.png`,
+    header: "none",
     night: true,
     body,
   });
